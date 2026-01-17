@@ -8,6 +8,11 @@ const tenantWithPlanInclude = {
 
 export type TenantWithPlan = Prisma.TenantGetPayload<{ include: typeof tenantWithPlanInclude }>;
 
+export type QuotaReservation = {
+  reservedVideos: number;
+  reservedAt: string;
+};
+
 export class QuotaExceededError extends Error {
   code = 'quota_exceeded';
 
@@ -39,6 +44,11 @@ const calculateLimit = (tenant: TenantWithPlan): number | null => {
   if (!tenant.planId) return null;
   if (isUnlimitedTenant(tenant)) return null;
   return tenant.monthlyVideoLimit + (tenant.bonusCredits ?? 0);
+};
+
+const normalizePositiveInt = (value: number) => {
+  const parsed = Math.trunc(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 };
 
 export const computeNextBillingDate = (cycleStart: Date) => {
@@ -138,6 +148,59 @@ export const enforceTenantQuota = (tenant: TenantWithPlan, requestedVideos = 1) 
   if (typeof limit === 'number' && limit > 0 && tenant.videosUsedThisCycle + requestedVideos > limit) {
     throw new QuotaExceededError();
   }
+};
+
+export const reserveTenantQuota = async (
+  trx: Prisma.TransactionClient,
+  tenant: TenantWithPlan,
+  requestedVideos = 1,
+): Promise<QuotaReservation> => {
+  const incrementBy = normalizePositiveInt(requestedVideos);
+  const reservedAt = new Date().toISOString();
+  if (incrementBy === 0) {
+    return { reservedVideos: 0, reservedAt };
+  }
+
+  const limit = calculateLimit(tenant);
+
+  if (typeof limit === 'number' && limit > 0) {
+    const updated = await trx.tenant.updateMany({
+      where: {
+        id: tenant.id,
+        videosUsedThisCycle: { lte: limit - incrementBy },
+      },
+      data: {
+        videosUsedThisCycle: { increment: incrementBy },
+      },
+    });
+    if (updated.count === 0) {
+      throw new QuotaExceededError();
+    }
+  } else {
+    await trx.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        videosUsedThisCycle: { increment: incrementBy },
+      },
+    });
+  }
+
+  return { reservedVideos: incrementBy, reservedAt };
+};
+
+export const releaseReservedTenantQuota = async (tenantId: string, reservedVideos = 1) => {
+  const decrementBy = normalizePositiveInt(reservedVideos);
+  if (decrementBy === 0) return;
+
+  await prisma.tenant.updateMany({
+    where: {
+      id: tenantId,
+      videosUsedThisCycle: { gte: decrementBy },
+    },
+    data: {
+      videosUsedThisCycle: { decrement: decrementBy },
+    },
+  });
 };
 
 export const incrementUsageOnSuccess = async (tenantId: string, incrementBy = 1) => {

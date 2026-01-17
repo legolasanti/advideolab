@@ -12,7 +12,7 @@ import { sanitizeImage } from './imageProcessing';
 import { validateUpload } from '../utils/fileValidation';
 import { triggerWorkflow } from './n8n';
 import { env } from '../config/env';
-import { TenantWithPlan } from './quota';
+import { TenantWithPlan, reserveTenantQuota, releaseReservedTenantQuota } from './quota';
 import { decrypt } from '../lib/crypto';
 
 const MAX_TENANT_JOBS = 20;
@@ -59,6 +59,10 @@ type VideoJobOptions = {
 type StoredVideoJobOptions = VideoJobOptions & {
   callbackTokenHash: string;
   callbackToken?: string;
+  quotaReservation?: {
+    reservedVideos: number;
+    reservedAt: string;
+  };
 };
 
 export class UnsafeExternalUrlError extends Error {
@@ -271,132 +275,149 @@ export const createJob = async (params: {
   const sanitized = await sanitizeImage(params.file);
   const callbackTokenBytes = crypto.randomBytes(32);
   const callbackToken = callbackTokenBytes.toString('hex');
-  const storedOptions: StoredVideoJobOptions = {
-    ...params.options,
-    callbackTokenHash: hashCallbackToken(callbackTokenBytes),
-  };
-  const job = await prisma.job.create({
-    data: {
-      tenantId: params.tenant.id,
-      status: JobStatus.pending,
-      options: storedOptions,
-    },
-  });
+  const callbackTokenHash = hashCallbackToken(callbackTokenBytes);
 
-  const inputKey = generateAssetKey(params.tenant.id, 'input', job.id, sanitized.ext);
-  const inputUrl = await uploadBuffer(sanitized.buffer, inputKey, params.file.mimetype);
-  const thumbKey = generateAssetKey(params.tenant.id, 'input', `${job.id}-thumb`, 'jpg');
-  const thumbUrl = await uploadBuffer(sanitized.thumbnail, thumbKey, 'image/jpeg');
-
-  const asset = await prisma.asset.create({
-    data: {
-      tenantId: params.tenant.id,
-      jobId: job.id,
-      type: 'input',
-      url: inputUrl,
-      meta: {
-        thumbnailUrl: thumbUrl,
+  const { job } = await prisma.$transaction(async (trx: Prisma.TransactionClient) => {
+    const reservation = await reserveTenantQuota(trx, params.tenant, params.options.videoCount);
+    const storedOptions: StoredVideoJobOptions = {
+      ...params.options,
+      callbackTokenHash,
+      quotaReservation: reservation.reservedVideos > 0 ? reservation : undefined,
+    };
+    const job = await trx.job.create({
+      data: {
+        tenantId: params.tenant.id,
+        status: JobStatus.pending,
+        options: storedOptions,
       },
-    },
-  });
-
-  await prisma.job.update({
-    where: { id: job.id },
-    data: { inputAssetId: asset.id, status: JobStatus.running },
-  });
-
-  const webhookBase = env.API_PUBLIC_URL.replace(/\/$/, '');
-  const callbackUrl = `${webhookBase}/api/videos/jobs/${job.id}/callback`;
-  const apiKeys = await prisma.apiKey.findMany({ where: { tenantId: params.tenant.id } });
-  const decryptedKeys = Object.fromEntries(
-    apiKeys.map((key) => [key.provider, decrypt(key.keyEncrypted)] as const),
-  );
-
-  const n8nUrl = `${n8nBaseUrl}${n8nProcessPath}`;
-  const result = await triggerWorkflow(n8nUrl, {
-    file: sanitized.buffer,
-    fileName: params.file.originalname,
-    mimeType: params.file.mimetype,
-    jobId: job.id,
-    tenantId: params.tenant.id,
-    tenantName: params.tenant.name,
-    tenantEmail: params.tenantContactEmail,
-    createdByEmail: params.initiatingUserEmail,
-    webhookBase,
-    scriptLanguage: params.options.scriptLanguage,
-    platformFocus: params.options.platformFocus,
-    vibe: params.options.vibe,
-    voiceProfile: params.options.voiceProfile,
-    callToAction: params.options.callToAction,
-    videoCount: params.options.videoCount,
-    creativeBrief: params.options.creativeBrief,
-    creatorGender: params.options.creatorGender,
-    creatorAgeRange: params.options.creatorAgeRange,
-    callbackUrl,
-    callbackToken,
-    apiKeyPayload: decryptedKeys,
-    inputAssets: { imageUrl: inputUrl, thumbnailUrl: thumbUrl },
-    composition: {
-      useCloudinary: env.useCloudinary,
-      composeServiceUrl: env.COMPOSE_SERVICE_URL,
-      cloudinary: env.useCloudinary
-        ? {
-            cloudName: env.CLOUDINARY_CLOUD_NAME ?? '',
-            apiKey: env.CLOUDINARY_API_KEY ?? '',
-            apiSecret: env.CLOUDINARY_API_SECRET ?? '',
-          }
-        : undefined,
-    },
-  });
-
-  if (result.immediateOutputs) {
-    const outputs = normalizeWorkflowOutputs(result.immediateOutputs);
-    if (!outputs) {
-      await markJobError(job.id, params.tenant.id, 'n8n returned invalid outputs');
-      return { jobId: job.id };
-    }
-    const claimed = await prisma.job.updateMany({
-      where: {
-        id: job.id,
-        finishedAt: null,
-        status: { in: [JobStatus.pending, JobStatus.running] },
-      },
-      data: { status: JobStatus.processing },
     });
-    if (claimed.count === 0) {
-      return { jobId: job.id };
-    }
+    return { job };
+  });
 
-    let storedOutputs;
-    try {
-      storedOutputs = await persistOutputsToStorage(params.tenant.id, job.id, outputs);
-    } catch (err) {
-      console.error('[n8n-sync] failed to persist outputs', err);
-      if (err instanceof UnsafeExternalUrlError || err instanceof ExternalAssetTooLargeError) {
-        await markJobError(job.id, params.tenant.id, err.message || 'Invalid output URL');
+  try {
+    const inputKey = generateAssetKey(params.tenant.id, 'input', job.id, sanitized.ext);
+    const inputUrl = await uploadBuffer(sanitized.buffer, inputKey, params.file.mimetype);
+    const thumbKey = generateAssetKey(params.tenant.id, 'input', `${job.id}-thumb`, 'jpg');
+    const thumbUrl = await uploadBuffer(sanitized.thumbnail, thumbKey, 'image/jpeg');
+
+    const asset = await prisma.asset.create({
+      data: {
+        tenantId: params.tenant.id,
+        jobId: job.id,
+        type: 'input',
+        url: inputUrl,
+        meta: {
+          thumbnailUrl: thumbUrl,
+        },
+      },
+    });
+
+    await prisma.job.update({
+      where: { id: job.id },
+      data: { inputAssetId: asset.id, status: JobStatus.running },
+    });
+
+    const webhookBase = env.API_PUBLIC_URL.replace(/\/$/, '');
+    const callbackUrl = `${webhookBase}/api/videos/jobs/${job.id}/callback`;
+    const apiKeys = await prisma.apiKey.findMany({ where: { tenantId: params.tenant.id } });
+    const decryptedKeys = Object.fromEntries(
+      apiKeys.map((key) => [key.provider, decrypt(key.keyEncrypted)] as const),
+    );
+
+    const n8nUrl = `${n8nBaseUrl}${n8nProcessPath}`;
+    const result = await triggerWorkflow(n8nUrl, {
+      file: sanitized.buffer,
+      fileName: params.file.originalname,
+      mimeType: params.file.mimetype,
+      jobId: job.id,
+      tenantId: params.tenant.id,
+      tenantName: params.tenant.name,
+      tenantEmail: params.tenantContactEmail,
+      createdByEmail: params.initiatingUserEmail,
+      webhookBase,
+      scriptLanguage: params.options.scriptLanguage,
+      platformFocus: params.options.platformFocus,
+      vibe: params.options.vibe,
+      voiceProfile: params.options.voiceProfile,
+      callToAction: params.options.callToAction,
+      videoCount: params.options.videoCount,
+      creativeBrief: params.options.creativeBrief,
+      creatorGender: params.options.creatorGender,
+      creatorAgeRange: params.options.creatorAgeRange,
+      callbackUrl,
+      callbackToken,
+      apiKeyPayload: decryptedKeys,
+      inputAssets: { imageUrl: inputUrl, thumbnailUrl: thumbUrl },
+      composition: {
+        useCloudinary: env.useCloudinary,
+        composeServiceUrl: env.COMPOSE_SERVICE_URL,
+        cloudinary: env.useCloudinary
+          ? {
+              cloudName: env.CLOUDINARY_CLOUD_NAME ?? '',
+              apiKey: env.CLOUDINARY_API_KEY ?? '',
+              apiSecret: env.CLOUDINARY_API_SECRET ?? '',
+            }
+          : undefined,
+      },
+    });
+
+    if (result.immediateOutputs) {
+      const outputs = normalizeWorkflowOutputs(result.immediateOutputs);
+      if (!outputs) {
+        await markJobError(job.id, params.tenant.id, 'n8n returned invalid outputs');
         return { jobId: job.id };
       }
-      await prisma.job.updateMany({
-        where: { id: job.id, status: JobStatus.processing, finishedAt: null },
-        data: { status: JobStatus.running },
+      const claimed = await prisma.job.updateMany({
+        where: {
+          id: job.id,
+          finishedAt: null,
+          status: { in: [JobStatus.pending, JobStatus.running] },
+        },
+        data: { status: JobStatus.processing },
       });
-      throw err;
+      if (claimed.count === 0) {
+        return { jobId: job.id };
+      }
+
+      let storedOutputs;
+      try {
+        storedOutputs = await persistOutputsToStorage(params.tenant.id, job.id, outputs);
+      } catch (err) {
+        console.error('[n8n-sync] failed to persist outputs', err);
+        if (err instanceof UnsafeExternalUrlError || err instanceof ExternalAssetTooLargeError) {
+          await markJobError(job.id, params.tenant.id, err.message || 'Invalid output URL');
+          return { jobId: job.id };
+        }
+        await prisma.job.updateMany({
+          where: { id: job.id, status: JobStatus.processing, finishedAt: null },
+          data: { status: JobStatus.running },
+        });
+        throw err;
+      }
+
+      try {
+        await completeJobWithOutputs(job.id, params.tenant.id, storedOutputs, params.options.videoCount);
+        return { jobId: job.id, outputs: storedOutputs };
+      } catch (err) {
+        console.error('[n8n-sync] failed to finalize job', err);
+        await prisma.job.updateMany({
+          where: { id: job.id, status: JobStatus.processing, finishedAt: null },
+          data: { status: JobStatus.running },
+        });
+        throw err;
+      }
     }
 
-    try {
-      await completeJobWithOutputs(job.id, params.tenant.id, storedOutputs, params.options.videoCount);
-      return { jobId: job.id, outputs: storedOutputs };
-    } catch (err) {
-      console.error('[n8n-sync] failed to finalize job', err);
-      await prisma.job.updateMany({
-        where: { id: job.id, status: JobStatus.processing, finishedAt: null },
-        data: { status: JobStatus.running },
-      });
-      throw err;
-    }
+    return { jobId: job.id };
+  } catch (err: any) {
+    const message =
+      err?.response?.data?.message ??
+      err?.response?.data?.error ??
+      err?.message ??
+      'job_create_failed';
+    await markJobError(job.id, params.tenant.id, message);
+    throw err;
   }
-
-  return { jobId: job.id };
 };
 
 type ExternalOutput = {
@@ -620,7 +641,25 @@ export const completeJobWithOutputs = async (
       },
     });
 
-    if (typeof usageIncrementBy === 'number' && Number.isFinite(usageIncrementBy) && usageIncrementBy > 0) {
+    const reservation = (() => {
+      const options = existingJob?.options;
+      if (!options || typeof options !== 'object' || Array.isArray(options)) return null;
+      const record = options as Record<string, unknown>;
+      const entry = record.quotaReservation;
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const reservedVideos = (entry as { reservedVideos?: unknown }).reservedVideos;
+      return typeof reservedVideos === 'number' && Number.isFinite(reservedVideos) && reservedVideos > 0
+        ? Math.trunc(reservedVideos)
+        : null;
+    })();
+
+    const shouldIncrementUsage =
+      typeof usageIncrementBy === 'number' &&
+      Number.isFinite(usageIncrementBy) &&
+      usageIncrementBy > 0 &&
+      reservation == null;
+
+    if (shouldIncrementUsage) {
       await trx.tenant.update({
         where: { id: tenantId },
         data: { videosUsedThisCycle: { increment: Math.trunc(usageIncrementBy) } },
@@ -631,6 +670,22 @@ export const completeJobWithOutputs = async (
 };
 
 export const markJobError = async (jobId: string, tenantId: string, error: string) => {
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: { options: true },
+  });
+  const reservation = (() => {
+    const options = job?.options;
+    if (!options || typeof options !== 'object' || Array.isArray(options)) return null;
+    const record = options as Record<string, unknown>;
+    const entry = record.quotaReservation;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+    const reservedVideos = (entry as { reservedVideos?: unknown }).reservedVideos;
+    return typeof reservedVideos === 'number' && Number.isFinite(reservedVideos) && reservedVideos > 0
+      ? Math.trunc(reservedVideos)
+      : null;
+  })();
+
   const updated = await prisma.job.updateMany({
     where: {
       id: jobId,
@@ -645,6 +700,9 @@ export const markJobError = async (jobId: string, tenantId: string, error: strin
   });
   if (updated.count === 0) {
     return;
+  }
+  if (reservation != null) {
+    await releaseReservedTenantQuota(tenantId, reservation);
   }
   await pruneTenantJobs(tenantId, MAX_TENANT_JOBS);
 };

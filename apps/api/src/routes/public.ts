@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { getCmsSection } from '../services/cms';
 import { getEmailStatus, sendOwnerContactNotification } from '../services/email';
 import { prisma } from '../lib/prisma';
+import { env } from '../config/env';
 
 const router = Router();
 
@@ -55,7 +57,18 @@ router.get('/blog/:slug', async (req, res) => {
   const post = await prisma.blogPost.findUnique({
     where: { slug: req.params.slug },
   });
-  if (!post || (!post.published && req.query.preview !== 'true')) {
+  const previewToken = typeof req.query.previewToken === 'string' ? req.query.previewToken.trim() : null;
+  const ownerPreview = req.auth?.role === 'owner_superadmin';
+  const tokenPreview = (() => {
+    const expected = env.blogPreviewToken?.trim();
+    if (!expected || expected.length < 32) return false;
+    if (!previewToken || previewToken.length < 32) return false;
+    const providedHash = crypto.createHash('sha256').update(previewToken).digest();
+    const expectedHash = crypto.createHash('sha256').update(expected).digest();
+    return crypto.timingSafeEqual(providedHash, expectedHash);
+  })();
+
+  if (!post || (!post.published && !ownerPreview && !tokenPreview)) {
     return res.status(404).json({ error: 'Post not found' });
   }
   res.json(post);

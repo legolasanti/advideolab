@@ -439,6 +439,9 @@ router.put('/n8n-config', async (req, res) => {
 
   if (body.n8nInternalToken !== undefined) {
     const token = body.n8nInternalToken?.trim();
+    if (token && token.length < 32) {
+      return res.status(400).json({ error: 'n8n_internal_token_too_short' });
+    }
     updateData.n8nInternalToken = token ? encrypt(token) : null;
   }
 

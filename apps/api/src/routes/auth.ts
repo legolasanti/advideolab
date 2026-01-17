@@ -258,13 +258,14 @@ router.post('/password-reset', async (req, res) => {
 
     // Generate secure reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
     // Store token in database
     await prisma.passwordResetToken.create({
       data: {
         email,
-        token: resetToken,
+        token: resetTokenHash,
         expiresAt,
       },
     });
@@ -281,7 +282,7 @@ router.post('/password-reset', async (req, res) => {
 });
 
 const resetPasswordSchema = z.object({
-  token: z.string().min(1),
+  token: z.string().regex(/^[a-f0-9]{64}$/i, { message: 'Invalid reset token format' }),
   newPassword: z
     .string()
     .min(8)
@@ -295,10 +296,11 @@ const resetPasswordSchema = z.object({
 router.post('/password-reset/confirm', async (req, res) => {
   try {
     const { token, newPassword } = resetPasswordSchema.parse(req.body);
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
     // Find and validate token
     const resetRecord = await prisma.passwordResetToken.findUnique({
-      where: { token },
+      where: { token: tokenHash },
     });
 
     if (!resetRecord) {
@@ -336,7 +338,7 @@ router.post('/password-reset/confirm', async (req, res) => {
 
     // Mark token as used
     await prisma.passwordResetToken.update({
-      where: { token },
+      where: { token: tokenHash },
       data: { used: true },
     });
 

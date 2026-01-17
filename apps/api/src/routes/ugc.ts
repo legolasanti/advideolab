@@ -7,6 +7,7 @@ import { upload } from '../middleware/upload';
 import { prisma } from '../lib/prisma';
 import { uploadBuffer } from '../lib/s3';
 import { env } from '../config/env';
+import { decrypt } from '../lib/crypto';
 import { completeUgcJobFromUpload, createUgcJob } from '../services/ugcVideoService';
 import { validateUpload } from '../utils/fileValidation';
 import { sanitizeImage } from '../services/imageProcessing';
@@ -197,11 +198,40 @@ router.post(
   '/jobs/:jobId/upload-video',
   largeUpload.single('video'),
   async (req, res) => {
-    const token = req.header('x-internal-api-token');
-    if (!token || token !== env.n8nInternalToken) {
+    const providedToken = req.header('x-internal-api-token')?.trim();
+    if (!providedToken || providedToken.length < 32) {
       console.error('[ugc] Invalid internal token on callback');
       return res.status(401).json({ error: 'unauthorized' });
     }
+
+    const config = await prisma.systemConfig.findUnique({
+      where: { id: 'singleton' },
+      select: { n8nInternalToken: true },
+    });
+
+    let expectedToken: string | null = env.n8nInternalToken?.trim() ?? null;
+    if (config?.n8nInternalToken) {
+      try {
+        expectedToken = decrypt(config.n8nInternalToken).trim();
+      } catch (err) {
+        console.error('[ugc] Failed to decrypt internal token', err);
+        expectedToken = null;
+      }
+    }
+
+    if (!expectedToken || expectedToken.length < 32) {
+      console.error('[ugc] Internal token not configured');
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+
+    const providedHash = crypto.createHash('sha256').update(providedToken).digest();
+    const expectedHash = crypto.createHash('sha256').update(expectedToken).digest();
+    const authorized = crypto.timingSafeEqual(providedHash, expectedHash);
+    if (!authorized) {
+      console.error('[ugc] Invalid internal token on callback');
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+
     if (!req.file) {
       return res.status(400).json({ error: 'Missing video file' });
     }

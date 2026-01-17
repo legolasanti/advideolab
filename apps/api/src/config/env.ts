@@ -18,7 +18,7 @@ const envSchema = z.object({
   CLOUDINARY_API_SECRET: z.string().optional(),
   N8N_SYNC: z.enum(['true', 'false']).default('false'),
   N8N_WEBHOOK_URL: z.string().url(),
-  N8N_INTERNAL_TOKEN: z.string().min(8),
+  N8N_INTERNAL_TOKEN: z.string().min(32),
   ENCRYPTION_KEY: z.string().min(32),
   RATE_LIMIT_WINDOW_MS: z.string().default('60000'),
   RATE_LIMIT_MAX: z.string().default('100'),
@@ -33,6 +33,7 @@ const envSchema = z.object({
   OUTPUT_DOWNLOAD_HOST_ALLOWLIST: z.string().optional(),
   ALLOWED_ORIGINS: z.string().optional(),
   TRUST_PROXY: z.string().optional(),
+  BLOG_PREVIEW_TOKEN: z.string().min(32).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -63,6 +64,7 @@ export const env = {
   n8nInternalToken: parsed.data.N8N_INTERNAL_TOKEN,
   outputDownloadHostAllowlist: parsed.data.OUTPUT_DOWNLOAD_HOST_ALLOWLIST,
   allowedOrigins: parsed.data.ALLOWED_ORIGINS,
+  blogPreviewToken: parsed.data.BLOG_PREVIEW_TOKEN,
   trustProxy: (() => {
     const raw = parsed.data.TRUST_PROXY?.trim();
     const isProd = parsed.data.NODE_ENV === 'production';

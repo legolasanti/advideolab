@@ -5,7 +5,12 @@ import { prisma } from '../lib/prisma';
 import { uploadBuffer } from '../lib/s3';
 import { env } from '../config/env';
 import { decrypt } from '../lib/crypto';
-import { ensureTenantReadyForUsage, incrementUsageOnSuccess } from './quota';
+import {
+  ensureTenantReadyForUsage,
+  incrementUsageOnSuccess,
+  reserveTenantQuota,
+  releaseReservedTenantQuota,
+} from './quota';
 import { sendJobCompletedEmail } from './email';
 
 export type UgcJobPayload = {
@@ -50,32 +55,59 @@ export const createUgcJob = async (params: {
   }
 
   // Enforce quota before creating job
-  await ensureTenantReadyForUsage(tenantId, 1);
+  const tenant = await ensureTenantReadyForUsage(tenantId, 1);
 
-  const job = await prisma.job.create({
-    data: {
-      tenantId,
-      userId,
-      status: JobStatus.pending,
-      options: payload,
-      productName: payload.productName,
-      prompt: payload.prompt ?? null,
-      language: payload.language,
-      gender: payload.gender,
-      ageRange: payload.ageRange,
-      platform: payload.platform ?? null,
-      voiceProfile: payload.voiceProfile ?? null,
-      cta: payload.cta ?? null,
-      imageUrl: payload.imageUrl,
-    },
+  const { job } = await prisma.$transaction(async (trx) => {
+    const reservation = await reserveTenantQuota(trx, tenant, 1);
+    const options = {
+      ...payload,
+      quotaReservation: reservation.reservedVideos > 0 ? reservation : undefined,
+    };
+
+    const job = await trx.job.create({
+      data: {
+        tenantId,
+        userId,
+        status: JobStatus.pending,
+        options,
+        productName: payload.productName,
+        prompt: payload.prompt ?? null,
+        language: payload.language,
+        gender: payload.gender,
+        ageRange: payload.ageRange,
+        platform: payload.platform ?? null,
+        voiceProfile: payload.voiceProfile ?? null,
+        cta: payload.cta ?? null,
+        imageUrl: payload.imageUrl,
+      },
+    });
+
+    return { job };
   });
 
   const callbackUrl = `${env.API_PUBLIC_URL.replace(/\/$/, '')}/api/ugc/jobs/${job.id}/upload-video`;
 
   // Get callback token (prefer global config, fallback to env)
-  const callbackToken = systemConfig.n8nInternalToken
-    ? decrypt(systemConfig.n8nInternalToken)
-    : env.n8nInternalToken;
+  let callbackToken: string | null = null;
+  try {
+    callbackToken = systemConfig.n8nInternalToken ? decrypt(systemConfig.n8nInternalToken) : env.n8nInternalToken;
+  } catch (decryptErr) {
+    console.error('[ugc] Failed to decrypt internal token', decryptErr);
+  }
+  callbackToken = callbackToken?.trim() ?? null;
+
+  if (!callbackToken || callbackToken.length < 32) {
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        status: JobStatus.failed,
+        errorMessage: 'Internal token not configured',
+        finishedAt: new Date(),
+      },
+    });
+    await releaseReservedTenantQuota(tenantId, 1);
+    throw new Error('Internal token not configured');
+  }
 
   try {
     await axios.post(
@@ -109,13 +141,19 @@ export const createUgcJob = async (params: {
       err?.message ??
       'Failed to trigger video workflow';
     console.error('[ugc] Failed to trigger n8n webhook', message);
-    await prisma.job.update({
-      where: { id: job.id },
-      data: {
-        status: JobStatus.failed,
-        errorMessage: message,
-      },
-    });
+    await prisma.job
+      .update({
+        where: { id: job.id },
+        data: {
+          status: JobStatus.failed,
+          errorMessage: message,
+          finishedAt: new Date(),
+        },
+      })
+      .catch((updateErr) => {
+        console.error('[ugc] Failed to mark job failed', updateErr);
+      });
+    await releaseReservedTenantQuota(tenantId, 1);
     throw err;
   }
 };
@@ -200,8 +238,21 @@ export const completeUgcJobFromUpload = async (params: {
     }),
   ]);
 
-  // Increment usage after successful job completion
-  await incrementUsageOnSuccess(job.tenantId, 1);
+  const reservation = (() => {
+    const options = job?.options;
+    if (!options || typeof options !== 'object' || Array.isArray(options)) return null;
+    const entry = (options as Record<string, unknown>).quotaReservation;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+    const reservedVideos = (entry as { reservedVideos?: unknown }).reservedVideos;
+    return typeof reservedVideos === 'number' && Number.isFinite(reservedVideos) && reservedVideos > 0
+      ? Math.trunc(reservedVideos)
+      : null;
+  })();
+
+  if (reservation == null) {
+    // Backwards compatibility: jobs created before quota reservations existed.
+    await incrementUsageOnSuccess(job.tenantId, 1);
+  }
 
   // Send completion email to user
   if (job.userId) {
