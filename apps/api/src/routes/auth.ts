@@ -209,7 +209,16 @@ router.post('/signup', async (req, res) => {
 
 router.get('/me', requireAuth, async (req, res) => {
   if (req.auth?.role === 'owner_superadmin') {
-    const owner = await prisma.owner.findUnique({ where: { id: req.auth.ownerId } });
+    if (!req.auth.ownerId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const owner = await prisma.owner.findUnique({
+      where: { id: req.auth.ownerId },
+      select: { id: true, email: true, createdAt: true, tenantId: true },
+    });
+    if (!owner) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
     return res.json({ owner });
   }
 

@@ -114,6 +114,7 @@ router.post(
             role: body.role,
             passwordHash: await hashPassword(body.password),
           },
+          select: { id: true, email: true, role: true, createdAt: true },
         });
         await audit(req.tenant!.id, req.auth?.userId, 'invite_user', { email: body.email, role: body.role });
         return res.json(user);
