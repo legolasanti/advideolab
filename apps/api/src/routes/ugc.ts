@@ -8,6 +8,8 @@ import { prisma } from '../lib/prisma';
 import { uploadBuffer } from '../lib/s3';
 import { env } from '../config/env';
 import { completeUgcJobFromUpload, createUgcJob } from '../services/ugcVideoService';
+import { validateUpload } from '../utils/fileValidation';
+import { sanitizeImage } from '../services/imageProcessing';
 
 const router = Router();
 
@@ -73,10 +75,22 @@ router.post(
       if (!req.file) {
         return res.status(400).json({ error: 'Image file is required' });
       }
-      const mime = req.file.mimetype || 'image/png';
-      const ext = mime.split('/').pop()?.replace(/[^a-z0-9]/gi, '') || 'png';
-      const key = `ugc/inputs/${req.auth.tenantId}/${Date.now()}-${crypto.randomBytes(3).toString('hex')}.${ext}`;
-      const imageUrl = await uploadBuffer(req.file.buffer, key, mime);
+      try {
+        validateUpload(req.file);
+      } catch (err: any) {
+        return res.status(400).json({ error: err?.message ?? 'Invalid upload' });
+      }
+
+      let sanitized;
+      try {
+        sanitized = await sanitizeImage(req.file);
+      } catch (_err) {
+        return res.status(400).json({ error: 'Invalid image file' });
+      }
+
+      const contentType = sanitized.ext === 'png' ? 'image/png' : 'image/jpeg';
+      const key = `ugc/inputs/${req.auth.tenantId}/${Date.now()}-${crypto.randomBytes(3).toString('hex')}.${sanitized.ext}`;
+      const imageUrl = await uploadBuffer(sanitized.buffer, key, contentType);
 
       await prisma.asset.create({
         data: {
