@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { requireAuth, requireTenantRole } from '../middleware/auth';
 import { prisma } from '../lib/prisma';
 import { upload } from '../middleware/upload';
@@ -121,10 +122,46 @@ router.post(
       if (!body.userId) {
         return res.status(400).json({ error: 'Missing userId' });
       }
+      if (!req.tenant?.id) {
+        return res.status(400).json({ error: 'Tenant missing' });
+      }
       if (body.userId === req.auth?.userId) {
         return res.status(400).json({ error: 'You cannot remove your own access' });
       }
-      await prisma.user.delete({ where: { id: body.userId } });
+      const tenantId = req.tenant.id;
+      const result = await prisma.$transaction(
+        async (trx) => {
+          const target = await trx.user.findFirst({
+            where: { id: body.userId, tenantId },
+            select: { id: true, role: true },
+          });
+          if (!target) {
+            return { deleted: 0, error: 'not_found' as const };
+          }
+
+          if (target.role === 'tenant_admin') {
+            const adminCount = await trx.user.count({
+              where: { tenantId, role: 'tenant_admin' },
+            });
+            if (adminCount <= 1) {
+              return { deleted: 0, error: 'last_admin' as const };
+            }
+          }
+
+          const deleted = await trx.user.deleteMany({
+            where: { id: body.userId, tenantId },
+          });
+          return { deleted: deleted.count, error: null };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+
+      if (result.error === 'last_admin') {
+        return res.status(400).json({ error: 'Cannot delete the last tenant admin' });
+      }
+      if (result.deleted === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
       await audit(req.tenant!.id, req.auth?.userId, 'remove_user', { userId: body.userId });
       return res.json({ ok: true });
     },

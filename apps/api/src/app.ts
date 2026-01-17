@@ -25,7 +25,14 @@ app.use('/api/billing/stripe', stripeWebhookRoutes);
 
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan(env.isProd ? 'combined' : 'dev'));
+morgan.token('safe-url', (req) => (req.originalUrl ?? req.url ?? '').split('?')[0]);
+app.use(
+  morgan(
+    env.isProd
+      ? ':remote-addr - :remote-user [:date[clf]] ":method :safe-url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"'
+      : ':method :safe-url :status :res[content-length] - :response-time ms',
+  ),
+);
 app.use(
   rateLimit({
     windowMs: env.rateLimitWindowMs,

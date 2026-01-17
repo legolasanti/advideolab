@@ -112,7 +112,7 @@ Every call to n8n is multipart with the sanitized `file` upload and the followin
 
 ### Callback contract
 
-n8n must POST to `POST /api/videos/jobs/:jobId/callback` with:
+n8n must POST to the `callback_url` provided in the job payload and include the per-job callback token in the `x-callback-token` header (value: `callback_token`) with:
 
 ```json
 {
@@ -126,6 +126,10 @@ n8n must POST to `POST /api/videos/jobs/:jobId/callback` with:
   ]
 }
 ```
+
+Notes:
+- The callback is authenticated via the per-job token. Prefer sending `x-callback-token` (headers are less likely to be logged than query params).
+- The API will download each `outputs[].url` and re-upload it to the configured object storage/CDN.
 
 Use `status: "error"` with an optional `"errorMessage"` string if the workflow fails. Successful callbacks store each output as an Asset record, mark the Job as done, and increment the tenant's `videosUsedThisCycle`.
 
@@ -205,7 +209,7 @@ Every tenant stores their own `n8nBaseUrl` and `n8nProcessPath`. When a job is c
    - language + vibe + voice profile + platform focus + CTA (`script_language`, `vibe`, `voice_profile`, `platform_focus`, `call_to_action`)
    - `video_count` (1–5) plus optional `creative_brief`
    - `creator_gender` and `creator_age_range` (used to style the UGC talent)
-   - `callback_url` (`/api/videos/jobs/:id/callback`)
+   - `callback_url` (`/api/videos/jobs/:id/callback`) and `callback_token` (forwarded back via `x-callback-token`)
    - encrypted API keys resurfaced as `apikey_*`
    - composition hints (`use_cloudinary` or `compose_service_url`)
 3. If `N8N_SYNC=true`, immediate outputs are stored; otherwise the callback endpoint records completion and decrements quota atomically.

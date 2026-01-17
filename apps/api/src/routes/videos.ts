@@ -1,18 +1,21 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import { JobStatus } from '@prisma/client';
 import { requireAuth, requireTenantRole } from '../middleware/auth';
 import { upload } from '../middleware/upload';
 import {
   createJob,
   completeJobWithOutputs,
   markJobError,
+  UnsafeExternalUrlError,
+  ExternalAssetTooLargeError,
   WorkflowConfigurationError,
   persistOutputsToStorage,
 } from '../services/jobService';
 import { prisma } from '../lib/prisma';
 import {
-  incrementUsageOnSuccess,
   ensureTenantReadyForUsage,
   QuotaExceededError,
   TenantBlockedError,
@@ -55,16 +58,67 @@ const callbackSchema = z.object({
   outputs: z
     .array(
       z.object({
-        url: z.string().url(),
-        type: z.string().optional(),
+        url: z
+          .string()
+          .url()
+          .max(2048)
+          .refine((value) => {
+            try {
+              const parsed = new URL(value);
+              return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+            } catch (_err) {
+              return false;
+            }
+          }, 'url must be http(s)'),
+        type: z.string().max(128).optional(),
         size: z.number().int().nonnegative().optional(),
-        thumbnailUrl: z.string().url().optional(),
+        thumbnailUrl: z
+          .string()
+          .url()
+          .max(2048)
+          .refine((value) => {
+            try {
+              const parsed = new URL(value);
+              return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+            } catch (_err) {
+              return false;
+            }
+          }, 'thumbnailUrl must be http(s)')
+          .optional(),
         durationSeconds: z.number().nonnegative().optional(),
       }),
     )
+    .max(5)
     .optional(),
-  errorMessage: z.string().optional(),
+  errorMessage: z.string().max(2000).optional(),
 });
+
+const parseCallbackToken = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (!/^[a-f0-9]{64}$/i.test(normalized)) return null;
+  return Buffer.from(normalized, 'hex');
+};
+
+const callbackTokenFromOptions = (options: unknown) => {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) return null;
+  return parseCallbackToken((options as { callbackToken?: unknown }).callbackToken);
+};
+
+const callbackTokenHashFromOptions = (options: unknown) => {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) return null;
+  return parseCallbackToken((options as { callbackTokenHash?: unknown }).callbackTokenHash);
+};
+
+const redactCallbackToken = <T extends { options?: unknown }>(job: T) => {
+  const options = job.options;
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    return job;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { callbackToken: _callbackToken, callbackTokenHash: _callbackTokenHash, ...rest } = options as Record<string, unknown>;
+  return { ...job, options: rest };
+};
 
 router.post(
   '/',
@@ -181,7 +235,7 @@ router.get('/jobs', requireAuth, requireTenantRole(['tenant_admin', 'user']), as
   ]);
 
   res.json({
-    data: jobs,
+    data: jobs.map((job) => redactCallbackToken(job as any)),
     pagination: { page, pageSize, total },
   });
 });
@@ -197,13 +251,58 @@ router.get('/jobs/:id', requireAuth, requireTenantRole(['tenant_admin', 'user'])
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });
   }
-  res.json(job);
+  res.json(redactCallbackToken(job as any));
 });
 
 router.post('/jobs/:id/callback', async (req, res) => {
-  const job = await prisma.job.findUnique({ where: { id: req.params.id } });
+  const job = await prisma.job.findUnique({
+    where: { id: req.params.id },
+    select: {
+      id: true,
+      tenantId: true,
+      status: true,
+      options: true,
+      finishedAt: true,
+      outputs: true,
+      updatedAt: true,
+    },
+  });
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });
+  }
+
+  const expectedToken = callbackTokenFromOptions(job.options);
+  const expectedTokenHash = callbackTokenHashFromOptions(job.options);
+  const headerToken = req.header('x-callback-token');
+  const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
+  const providedToken = parseCallbackToken(headerToken ?? queryToken);
+
+  const authorized = (() => {
+    if (!providedToken) return false;
+    if (expectedTokenHash) {
+      const providedHash = crypto.createHash('sha256').update(providedToken).digest();
+      return crypto.timingSafeEqual(providedHash, expectedTokenHash);
+    }
+    if (expectedToken) {
+      return crypto.timingSafeEqual(providedToken, expectedToken);
+    }
+    return false;
+  })();
+
+  if (!authorized) {
+    // Avoid leaking whether a job exists without a valid token.
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  const finalizedStatuses = new Set<JobStatus>([
+    JobStatus.done,
+    JobStatus.error,
+    JobStatus.completed,
+    JobStatus.failed,
+  ]);
+
+  if (job.finishedAt || finalizedStatuses.has(job.status)) {
+    return res.json({ ok: true });
   }
 
   const parsed = callbackSchema.safeParse(req.body);
@@ -220,20 +319,49 @@ router.post('/jobs/:id/callback', async (req, res) => {
     return res.status(400).json({ error: 'Missing outputs' });
   }
 
+  const claimed = await prisma.job.updateMany({
+    where: {
+      id: job.id,
+      finishedAt: null,
+      status: { in: [JobStatus.pending, JobStatus.running] },
+    },
+    data: { status: JobStatus.processing },
+  });
+
+  if (claimed.count === 0) {
+    return res.json({ ok: true });
+  }
+
   let storedOutputs;
   try {
     storedOutputs = await persistOutputsToStorage(job.tenantId, job.id, outputs);
   } catch (err) {
     console.error('[callback] failed to persist outputs', err);
+    if (err instanceof UnsafeExternalUrlError || err instanceof ExternalAssetTooLargeError) {
+      await markJobError(job.id, job.tenantId, err.message || 'Invalid output URL');
+      return res.json({ ok: true });
+    }
+    await prisma.job.updateMany({
+      where: { id: job.id, status: JobStatus.processing, finishedAt: null },
+      data: { status: JobStatus.running },
+    });
     return res.status(500).json({ error: 'output_persist_failed' });
   }
 
-  await completeJobWithOutputs(job.id, job.tenantId, storedOutputs);
   const jobOptions =
     job && typeof job.options === 'object' && job.options !== null ? (job.options as { videoCount?: number }) : {};
-  const completedCount = typeof jobOptions.videoCount === 'number' ? jobOptions.videoCount : 1;
-  await incrementUsageOnSuccess(job.tenantId, completedCount);
-  res.json({ ok: true });
+  const completedCount = clampNumber(jobOptions.videoCount ?? 1, 1, 5, 1);
+  try {
+    await completeJobWithOutputs(job.id, job.tenantId, storedOutputs, completedCount);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[callback] failed to finalize job', err);
+    await prisma.job.updateMany({
+      where: { id: job.id, status: JobStatus.processing, finishedAt: null },
+      data: { status: JobStatus.running },
+    });
+    return res.status(500).json({ error: 'job_finalize_failed' });
+  }
 });
 
 router.post('/jobs/:id/rerun', requireAuth, requireTenantRole(['tenant_admin']), async (req, res) => {

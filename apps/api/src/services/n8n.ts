@@ -28,6 +28,7 @@ type N8nOptions = {
   creatorGender: string;
   creatorAgeRange: string;
   callbackUrl: string;
+  callbackToken: string;
   apiKeyPayload?: Record<string, string>;
   inputAssets?: InputAssets;
   composition?: {
@@ -68,6 +69,8 @@ export const triggerWorkflow = async (
     creative_brief_text: normalizedCreativeBrief,
     creator_gender: options.creatorGender,
     creator_age_range: options.creatorAgeRange,
+    callback_url: options.callbackUrl,
+    callback_token: options.callbackToken,
     apikeys: options.apiKeyPayload ?? {},
     uploaded_image_url: uploadedImageUrl,
     input_assets: {
@@ -103,6 +106,7 @@ export const triggerWorkflow = async (
   form.append('creator_gender', options.creatorGender);
   form.append('creator_age_range', options.creatorAgeRange);
   form.append('callback_url', options.callbackUrl);
+  form.append('callback_token', options.callbackToken);
   form.append('payload', JSON.stringify(payload));
   form.append('apikeys', JSON.stringify(options.apiKeyPayload ?? {}));
   form.append('uploaded_image_url', uploadedImageUrl ?? '');

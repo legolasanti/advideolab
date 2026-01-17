@@ -50,6 +50,16 @@ const resolveVideoUrl = (job: any) => {
   return undefined;
 };
 
+const redactCallbackToken = (job: any) => {
+  const options = job?.options;
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    return job;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { callbackToken: _callbackToken, callbackTokenHash: _callbackTokenHash, ...rest } = options as Record<string, unknown>;
+  return { ...job, options: rest };
+};
+
 router.post(
   '/uploads/hero',
   requireAuth,
@@ -138,7 +148,7 @@ router.get('/jobs', requireAuth, requireTenantRole(['tenant_admin', 'user']), as
     ]);
 
     const data = jobs.map((job) => ({
-      ...job,
+      ...redactCallbackToken(job),
       status: normalizeStatus(job.status),
       videoUrl: resolveVideoUrl(job),
     }));
@@ -163,7 +173,7 @@ router.get('/jobs/:jobId', requireAuth, requireTenantRole(['tenant_admin', 'user
   if (!job) {
     return res.status(404).json({ error: 'Job not found' });
   }
-  res.json({ ...job, status: normalizeStatus(job.status), videoUrl: resolveVideoUrl(job) });
+  res.json({ ...redactCallbackToken(job), status: normalizeStatus(job.status), videoUrl: resolveVideoUrl(job) });
 } catch (err) {
     next(err);
   }
