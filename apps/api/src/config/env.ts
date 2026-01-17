@@ -30,6 +30,7 @@ const envSchema = z.object({
   OWNER_NOTIFY_EMAIL: z.string().optional(),
   OWNER_NOTIFICATION_EMAIL: z.string().optional(),
   WEB_BASE_URL: z.string().url().default('http://localhost:4173'),
+  OUTPUT_DOWNLOAD_HOST_ALLOWLIST: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -58,4 +59,5 @@ export const env = {
   WEB_BASE_URL: parsed.data.WEB_BASE_URL,
   n8nWebhookUrl: parsed.data.N8N_WEBHOOK_URL,
   n8nInternalToken: parsed.data.N8N_INTERNAL_TOKEN,
+  outputDownloadHostAllowlist: parsed.data.OUTPUT_DOWNLOAD_HOST_ALLOWLIST,
 };

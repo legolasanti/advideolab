@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { env } from '../config/env';
 import crypto from 'crypto';
+import type { Readable } from 'node:stream';
 
 const s3 = new S3Client({
   endpoint: env.S3_ENDPOINT,
@@ -24,6 +25,26 @@ export const uploadBuffer = async (
       Body: buffer,
       ACL: 'public-read',
       ContentType: contentType,
+    }),
+  );
+
+  return `${env.PUBLIC_CDN_BASE.replace(/\/$/, '')}/${key}`;
+};
+
+export const uploadStream = async (
+  stream: Readable,
+  key: string,
+  contentType: string,
+  contentLength?: number,
+): Promise<string> => {
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: env.S3_BUCKET,
+      Key: key,
+      Body: stream,
+      ACL: 'public-read',
+      ContentType: contentType,
+      ContentLength: Number.isFinite(contentLength) ? contentLength : undefined,
     }),
   );
 

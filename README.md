@@ -228,7 +228,7 @@ Every tenant stores their own `n8nBaseUrl` and `n8nProcessPath`. When a job is c
 
 - Set the following in `.env` (and ensure the api container loads it via `env_file`): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`, `OWNER_NOTIFICATION_EMAIL`, `WEB_BASE_URL`.
 - The API logs `[email] sending` and `[email] sent` with `to`/`subject` plus clear errors if any env var is missing.
-- Test delivery locally via `GET /api/health/email-test`; you should also see entries in Brevo’s real-time dashboard.
+- Test delivery locally via `GET /api/health/email-test` (owner-only); you should also see entries in Brevo’s real-time dashboard.
 
 ## CMS controls
 

@@ -5,8 +5,9 @@ import dns from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
+import { Transform, type Readable } from 'node:stream';
 import { prisma } from '../lib/prisma';
-import { uploadBuffer, generateAssetKey } from '../lib/s3';
+import { uploadBuffer, uploadStream, generateAssetKey } from '../lib/s3';
 import { sanitizeImage } from './imageProcessing';
 import { validateUpload } from '../utils/fileValidation';
 import { triggerWorkflow } from './n8n';
@@ -16,6 +17,24 @@ import { decrypt } from '../lib/crypto';
 
 const MAX_TENANT_JOBS = 20;
 const MAX_EXTERNAL_OUTPUT_BYTES = 250 * 1024 * 1024;
+const OUTPUT_HOST_ALLOWLIST = (env.outputDownloadHostAllowlist ?? '')
+  .split(',')
+  .map((entry) => entry.trim().toLowerCase().replace(/\.$/, ''))
+  .filter(Boolean);
+
+const isAllowedOutputHostname = (hostname: string) => {
+  if (OUTPUT_HOST_ALLOWLIST.length === 0) return true;
+  const normalized = hostname.trim().toLowerCase().replace(/\.$/, '');
+  for (const pattern of OUTPUT_HOST_ALLOWLIST) {
+    if (pattern.startsWith('*.')) {
+      const suffix = pattern.slice(2);
+      if (normalized === suffix || normalized.endsWith(`.${suffix}`)) return true;
+      continue;
+    }
+    if (normalized === pattern) return true;
+  }
+  return false;
+};
 
 export class WorkflowConfigurationError extends Error {
   code = 'workflow_not_configured';
@@ -124,6 +143,9 @@ const resolveSafeExternalTarget = async (rawUrl: string): Promise<SafeExternalTa
 
   const hostname = parsed.hostname.toLowerCase();
   if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) {
+    throw new UnsafeExternalUrlError('Output URL hostname is not allowed');
+  }
+  if (!isAllowedOutputHostname(hostname)) {
     throw new UnsafeExternalUrlError('Output URL hostname is not allowed');
   }
 
@@ -436,7 +458,13 @@ const normalizeFiniteNonnegative = (value: unknown) => {
   return undefined;
 };
 
-const downloadExternalAsset = async (url: string) => {
+type DownloadedExternalAsset = {
+  stream: Readable;
+  contentType?: string;
+  size?: number;
+};
+
+const downloadExternalAsset = async (url: string): Promise<DownloadedExternalAsset> => {
   const target = await resolveSafeExternalTarget(url);
   const lookup = (
     _hostname: string,
@@ -448,8 +476,8 @@ const downloadExternalAsset = async (url: string) => {
   const httpAgent = new http.Agent({ keepAlive: false, lookup });
   const httpsAgent = new https.Agent({ keepAlive: false, lookup });
 
-  const response = await axios.get<ArrayBuffer>(target.url.toString(), {
-    responseType: 'arraybuffer',
+  const response = await axios.get<NodeJS.ReadableStream>(target.url.toString(), {
+    responseType: 'stream',
     timeout: 180_000,
     maxRedirects: 0,
     maxContentLength: MAX_EXTERNAL_OUTPUT_BYTES,
@@ -462,10 +490,7 @@ const downloadExternalAsset = async (url: string) => {
     },
     validateStatus: (status) => status >= 200 && status < 300,
   });
-  const buffer = Buffer.from(response.data);
-  if (buffer.length > MAX_EXTERNAL_OUTPUT_BYTES) {
-    throw new ExternalAssetTooLargeError(`Output asset exceeds ${MAX_EXTERNAL_OUTPUT_BYTES} bytes`);
-  }
+  const stream = response.data as unknown as Readable;
   const contentTypeHeader = response.headers['content-type'];
   const lengthHeader = response.headers['content-length'];
   const parsedLength =
@@ -475,13 +500,32 @@ const downloadExternalAsset = async (url: string) => {
       ? Number(lengthHeader[0])
       : undefined;
   if (Number.isFinite(parsedLength) && Number(parsedLength) > MAX_EXTERNAL_OUTPUT_BYTES) {
+    if (typeof stream.destroy === 'function') {
+      stream.destroy();
+    }
     throw new ExternalAssetTooLargeError(`Output asset exceeds ${MAX_EXTERNAL_OUTPUT_BYTES} bytes`);
   }
   return {
-    buffer,
+    stream,
     contentType: typeof contentTypeHeader === 'string' ? contentTypeHeader : undefined,
     size: Number.isFinite(parsedLength) ? Number(parsedLength) : undefined,
   };
+};
+
+const createMaxBytesTransform = (maxBytes: number) => {
+  let bytes = 0;
+  const limiter = new Transform({
+    transform(chunk, _encoding, callback) {
+      const length = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk));
+      bytes += length;
+      if (bytes > maxBytes) {
+        callback(new ExternalAssetTooLargeError(`Output asset exceeds ${maxBytes} bytes`));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+  return { limiter, getBytes: () => bytes };
 };
 
 export const persistOutputsToStorage = async (
@@ -497,16 +541,29 @@ export const persistOutputsToStorage = async (
     const contentType = normalizeOutputContentType(download.contentType ?? payload.type ?? DEFAULT_OUTPUT_CONTENT_TYPE);
     const ext = determineOutputExtension(contentType);
     const key = generateAssetKey(tenantId, 'output', `${jobId}-${index}`, ext);
-    const uploadedUrl = await uploadBuffer(download.buffer, key, contentType);
-    const normalizedPayloadSize =
-      typeof payload.size === 'number'
-        ? payload.size
-        : payload.size
-        ? Number(payload.size)
-        : undefined;
-    const size = Number.isFinite(normalizedPayloadSize)
-      ? Number(normalizedPayloadSize)
-      : download.size ?? download.buffer.length;
+
+    const source = download.stream;
+    const { limiter, getBytes } = createMaxBytesTransform(MAX_EXTERNAL_OUTPUT_BYTES);
+    source.on('error', (err) => {
+      limiter.destroy(err);
+    });
+    limiter.on('error', (err) => {
+      if (typeof source.destroy === 'function') {
+        source.destroy(err);
+      }
+    });
+    source.pipe(limiter);
+    let uploadedUrl: string;
+    try {
+      uploadedUrl = await uploadStream(limiter, key, contentType, download.size);
+    } catch (err) {
+      if (typeof source.destroy === 'function') {
+        source.destroy(err as NodeJS.ErrnoException);
+      }
+      throw err;
+    }
+    const size = getBytes();
+
     stored.push({
       url: uploadedUrl,
       type: contentType,
