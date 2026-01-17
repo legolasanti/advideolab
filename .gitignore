@@ -1,0 +1,57 @@
+# OS
+.DS_Store
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Node / tooling
+node_modules/
+.npm/
+.yarn/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+dist-ssr/
+build/
+coverage/
+*.tsbuildinfo
+
+# Caches
+.turbo/
+.vite/
+.cache/
+.parcel-cache/
+.eslintcache
+
+# Env files (commit `.env.example`)
+.env
+.env.*
+!.env.example
+
+# Runtime
+tmp/
+
+# Prisma / local DB
+prisma/dev.db
+prisma/dev.db-journal
+**/prisma/dev.db
+**/prisma/dev.db-journal
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Local tool configs
+.claude/*.local.json
+
+# Local archives
+amazon-resim.tar.gz

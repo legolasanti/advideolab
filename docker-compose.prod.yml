@@ -1,0 +1,100 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app_pass
+      POSTGRES_DB: app
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - webnet
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    volumes:
+      - minio_data:/data
+    networks:
+      - webnet
+
+  api:
+    build:
+      context: ./apps/api
+    env_file: ./apps/api/.env
+    restart: unless-stopped
+    depends_on:
+      - db
+      - minio
+      - n8n
+    expose:
+      - "4000"
+    networks:
+      - webnet
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        VITE_API_BASE: https://api.ugcvideo.cloud
+        VITE_API_BASE_URL: https://api.ugcvideo.cloud
+        VITE_SITE_URL: https://app.ugcvideo.cloud
+    env_file: ./apps/web/.env
+    restart: unless-stopped
+    depends_on:
+      - api
+    expose:
+      - "4173"
+    networks:
+      - webnet
+
+  n8n:
+    image: docker.n8n.io/n8n/n8n:latest
+    restart: unless-stopped
+    environment:
+      GENERIC_TIMEZONE: Europe/Oslo
+      N8N_HOST: n8n.ugcvideo.cloud
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      N8N_BASIC_AUTH_ACTIVE: 'true'
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: change-this-password
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - webnet
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+      - n8n
+      - minio
+    networks:
+      - webnet
+
+volumes:
+  db_data:
+  minio_data:
+  n8n_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  webnet:

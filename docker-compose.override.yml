@@ -1,0 +1,16 @@
+services:
+  db:
+    ports:
+      - "5432:5432"   # PostgreSQL -> localhost:5432
+  api:
+    ports:
+      - "4000:4000"   # API -> localhost:4000
+  web:
+    ports:
+      - "4173:4173"   # Vite preview server -> localhost:4173
+
+  compose:
+    profiles: ["disabled"]
+
+  traefik:
+    profiles: ["disabled"]

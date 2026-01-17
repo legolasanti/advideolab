@@ -1,0 +1,19 @@
+app.ugcvideo.cloud {
+  reverse_proxy web:4173
+}
+
+api.ugcvideo.cloud {
+  reverse_proxy api:4000
+}
+
+n8n.ugcvideo.cloud {
+  reverse_proxy n8n:5678
+  # Uncomment to protect the n8n UI; replace the hash via `caddy hash-password`.
+  # basicauth /* {
+  #   admin change-this-password
+  # }
+}
+
+files.ugcvideo.cloud {
+  reverse_proxy minio:9000
+}
