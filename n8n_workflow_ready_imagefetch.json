@@ -379,8 +379,8 @@
       "waitBetweenTries": 5000,
       "credentials": {
         "httpQueryAuth": {
-          "id": "YOUR_GEMINI_QUERY_AUTH_ID",
-          "name": "Google Gemini Query Auth"
+          "id": "rkjB85pOBqnRaujN",
+          "name": "Gemini Query Auth account"
         }
       }
     },
@@ -451,8 +451,8 @@
       "waitBetweenTries": 5000,
       "credentials": {
         "httpQueryAuth": {
-          "id": "YOUR_GEMINI_QUERY_AUTH_ID",
-          "name": "Google Gemini Query Auth"
+          "id": "rkjB85pOBqnRaujN",
+          "name": "Gemini Query Auth account"
         }
       },
       "continueOnFail": true
