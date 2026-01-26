@@ -454,7 +454,8 @@
           "id": "YOUR_GEMINI_QUERY_AUTH_ID",
           "name": "Google Gemini Query Auth"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
