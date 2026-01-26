@@ -430,12 +430,12 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpQueryAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  contents: [{\n    parts: [\n      { text: 'Resize this image to 720x1280 portrait format while preserving the product in center.' },\n      {\n        inline_data: {\n          mime_type: 'image/jpeg',\n          data: $('convert_product_to_base64').item.json.data\n        }\n      }\n    ]\n  }]\n}) }}",
+        "jsonBody": "={{\n  {\n    contents: [\n      {\n        parts: [\n          {\n            text: 'Take the product image and adapt it to a 720x1280 portrait frame. Preserve the product in the center, extend or crop background naturally, and avoid distortion.'\n          },\n          {\n            inline_data: {\n              mime_type: 'image/jpeg',\n              data: $('convert_product_to_base64').item.json.data\n            }\n          }\n        ]\n      }\n    ]\n  }\n}}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -463,7 +463,7 @@
             {
               "id": "frame-result-id",
               "name": "frameData",
-              "value": "={{ $json.candidates[0].content.parts.find(p => p.inlineData)?.inlineData?.data || '' }}",
+              "value": "={{ $json.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data\n  || $json.candidates?.[0]?.content?.parts?.find(p => p.inline_data)?.inline_data?.data\n  || $('convert_product_to_base64').item.json.data }}",
               "type": "string"
             }
           ]
