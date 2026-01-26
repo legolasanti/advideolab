@@ -50,6 +50,25 @@ enum BillingEntityType {
   company
 }
 
+enum BillingInterval {
+  monthly
+  annual
+}
+
+enum WebhookEventStatus {
+  processing
+  processed
+  failed
+}
+
+enum MarketingEventType {
+  visit
+  signup_started
+  signup_completed
+  checkout_started
+  payment_completed
+}
+
 model Plan {
   id                String   @id @default(cuid())
   name              String
@@ -83,6 +102,7 @@ model Tenant {
   nextBillingDate      DateTime?
   requestedPlanCode    String?
   paymentStatus        PaymentStatus @default(payment_pending)
+  billingInterval      BillingInterval @default(monthly)
   billingEntityType    BillingEntityType @default(company)
   billingCompanyName   String?
   billingCountry       String?       @db.VarChar(2)
@@ -91,6 +111,10 @@ model Tenant {
   stripeCustomerId     String?       @unique @db.VarChar(64)
   stripeSubscriptionId String?       @unique @db.VarChar(64)
   stripeCheckoutSessionId String?    @unique @db.VarChar(128)
+  subscriptionPeriodStart DateTime?
+  subscriptionPeriodEnd   DateTime?
+  subscriptionCancelAt    DateTime?
+  subscriptionCanceledAt  DateTime?
 
   planDetails   Plan?               @relation(fields: [planId], references: [id])
   users         User[]
@@ -101,6 +125,9 @@ model Tenant {
   audits        Audit[]
   owner         Owner[]
   notifications AdminNotification[]
+  subscriptionCancellations SubscriptionCancellation[]
+  marketingEvents MarketingEvent[]
+  refreshTokens RefreshToken[]
 
   @@index([planId])
 }
@@ -109,9 +136,11 @@ model Owner {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String
+  tokenVersion Int      @default(0)
   createdAt    DateTime @default(now())
   tenantId     String?
   tenant       Tenant?  @relation(fields: [tenantId], references: [id])
+  refreshTokens RefreshToken[]
 }
 
 model User {
@@ -119,12 +148,19 @@ model User {
   tenantId     String
   email        String   @unique
   passwordHash String
+  googleId     String?  @unique
+  emailVerifiedAt DateTime?
+  tokenVersion Int      @default(0)
   role         UserRole @default(user)
   createdAt    DateTime @default(now())
 
   tenant Tenant  @relation(fields: [tenantId], references: [id])
   audits Audit[]
   jobs   Job[]
+  subscriptionCancellations SubscriptionCancellation[]
+  marketingEvents MarketingEvent[]
+  emailVerificationTokens EmailVerificationToken[]
+  refreshTokens RefreshToken[]
 }
 
 // @deprecated - This table is now legacy. New installations use SystemConfig.apiKeysEncrypted (global)
@@ -186,6 +222,8 @@ model Job {
   ageRange        String?
   platform        String?
   voiceProfile    String?
+  vibe            String?
+  videoCount      Int?
   cta             String?
   imageUrl        String?
   videoUrl        String?
@@ -244,9 +282,31 @@ model Coupon {
   value     Int      // Amount in cents or percentage (e.g. 20 for 20%)
   expiresAt DateTime?
   isActive  Boolean  @default(true)
+  maxUses   Int?
   createdAt DateTime @default(now())
   usedCount Int      @default(0)
   stripeCouponId String? @unique
+}
+
+model SubscriptionCancellation {
+  id                String         @id @default(cuid())
+  tenantId          String
+  userId            String?
+  planCode          String?
+  billingInterval   BillingInterval @default(monthly)
+  reason            String
+  details           Json?
+  monthsActive      Int?
+  requestedAt       DateTime       @default(now())
+  effectiveAt       DateTime?
+  canceledAt        DateTime?
+  stripeSubscriptionId String?     @db.VarChar(64)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([requestedAt])
 }
 
 model BlogPost {
@@ -280,6 +340,9 @@ model SystemConfig {
   stripePriceIdStarter        String?
   stripePriceIdGrowth         String?
   stripePriceIdScale          String?
+  stripePriceIdStarterAnnual  String?
+  stripePriceIdGrowthAnnual   String?
+  stripePriceIdScaleAnnual    String?
 
   sandboxTenantId String?
 
@@ -290,6 +353,13 @@ model SystemConfig {
 
   // Global API Keys (encrypted JSON object: { openai: "...", elevenlabs: "..." })
   apiKeysEncrypted String? @db.Text
+
+  customHeadCode  String? @db.Text
+  customBodyStart String? @db.Text
+  customBodyEnd   String? @db.Text
+
+  googleOAuthClientId String?
+  googleOAuthClientSecretEncrypted String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -305,4 +375,88 @@ model PasswordResetToken {
 
   @@index([email])
   @@index([token])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([email])
+  @@index([userId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String?
+  ownerId   String?
+  tenantId  String?
+  tokenVersion Int   @default(0)
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  user   User?   @relation(fields: [userId], references: [id])
+  owner  Owner?  @relation(fields: [ownerId], references: [id])
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([userId])
+  @@index([ownerId])
+  @@index([tenantId])
+}
+
+model MarketingEvent {
+  id          String             @id @default(cuid())
+  eventType   MarketingEventType
+  sessionId   String             @db.VarChar(128)
+  tenantId    String?
+  userId      String?
+  utmSource   String?            @db.VarChar(128)
+  utmMedium   String?            @db.VarChar(128)
+  utmCampaign String?            @db.VarChar(128)
+  referrer    String?            @db.Text
+  landingPage String?            @db.Text
+  createdAt   DateTime           @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([eventType, createdAt])
+  @@index([sessionId])
+  @@index([tenantId])
+}
+
+model StripeWebhookEvent {
+  id          String             @id @default(cuid())
+  eventId     String             @unique @db.VarChar(255)
+  type        String             @db.VarChar(255)
+  status      WebhookEventStatus @default(processing)
+  attempts    Int                @default(1)
+  lastError   String?            @db.Text
+  processedAt DateTime?
+  createdAt   DateTime           @default(now())
+
+  @@index([status])
+}
+
+model ShowcaseVideo {
+  id          String   @id @default(cuid())
+  title       String?
+  videoUrl    String
+  thumbnailUrl String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
 }

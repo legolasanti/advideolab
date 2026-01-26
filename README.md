@@ -52,13 +52,16 @@ This monorepo contains everything needed to run a modern SaaS for AI-powered UGC
    ```
 
 ### Seeding
-Seed script creates:
-| Type | Credentials | Notes |
-| --- | --- | --- |
-| Owner | `owner@example.com` / `Owner2025!` | Full access to manage tenants/plans |
-| Tenant admin | `admin@customer1.com` / `Customer1Video!` | Assigned to tenant `customer1` on the Starter plan |
+Seed script creates an owner + optional test tenants. Credentials are controlled via env:
+- `SEED_OWNER_EMAIL` (default: `abrahamceviz@gmail.com`)
+- `SEED_OWNER_PASSWORD` (optional; if missing, a random password is generated and printed once)
+- `SEED_TENANT_PASSWORD` (optional; default: `Test1234!`)
+- `SEED_TEST_TENANTS` (optional; defaults to `true` outside production)
 
-Tenant `customer1` starts on the **Starter** plan (10 videos/month) with its placeholder n8n endpoint and zero usage.
+Safety:
+- Seed refuses to run in production unless `ALLOW_PROD_SEED=true`.
+- Seed is non-destructive by default. Set `SEED_RESET=true` to wipe existing data.
+- Test tenants are skipped in production unless `SEED_TEST_TENANTS=true`.
 
 ### Default Plans
 | Plan | Code | Price (USD/mo) | Monthly videos |
@@ -249,6 +252,10 @@ npm test
 ```
 Includes tenant resolution, quota enforcement, and job lifecycle happy path.
 
+## API Documentation
+
+See `docs/api.md` for the current endpoint catalog and auth/refresh token details.
+
 ## Environment Reference
 
 | Variable | Purpose |
@@ -258,7 +265,7 @@ Includes tenant resolution, quota enforcement, and job lifecycle happy path.
 | `PUBLIC_CDN_BASE` | Public URL base that matches the S3 bucket |
 | `USE_CLOUDINARY` | `true` to send Cloudinary creds to n8n for overlays |
 | `COMPOSE_SERVICE_URL` | Internal Sharp microservice for overlays when not using Cloudinary |
-| `ENCRYPTION_KEY` | 32-char AES-256 key for tenant API secrets |
+| `ENCRYPTION_KEY` | 32-byte base64 AES-256 key for tenant API secrets |
 | `SMTP_HOST` / `SMTP_PORT` | Outbound SMTP server for transactional emails (Mailtrap, Gmail SMTP, etc.) |
 | `SMTP_USER` / `SMTP_PASS` | Credentials for the SMTP server |
 | `EMAIL_FROM` | Sender identity, e.g. `"UGC Studio" <no-reply@yourdomain.com>` |

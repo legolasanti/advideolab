@@ -4,8 +4,9 @@ const config: Config = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['<rootDir>/tests'],
-  moduleFileExtensions: ['ts', 'js', 'json'],
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  testMatch: ['<rootDir>/tests/**/*.test.ts'],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'json'],
+  setupFiles: ['<rootDir>/tests/setup.ts'],
   coverageDirectory: 'coverage',
 };
 

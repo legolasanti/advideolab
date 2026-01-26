@@ -12,6 +12,9 @@ export type UsageResponse = {
   reset_day: number;
   billing_cycle_start?: string | null;
   next_billing_date?: string | null;
+  usage_cycle_start?: string | null;
+  usage_cycle_end?: string | null;
+  subscription_period_end?: string | null;
   bonus_credits?: number | null;
 };
 

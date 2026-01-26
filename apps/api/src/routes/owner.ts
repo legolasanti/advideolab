@@ -1,18 +1,106 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { z } from 'zod';
 import { requireAuth, requireOwner } from '../middleware/auth';
+import { upload } from '../middleware/upload';
 import { prisma } from '../lib/prisma';
 import { encrypt, decrypt } from '../lib/crypto';
+import { uploadBuffer } from '../lib/s3';
 import { resetUsageForTenant } from '../services/quota';
 import { signToken } from '../utils/jwt';
 import { sendEmailTest } from '../services/email';
 import { getCmsSection, setCmsValue } from '../services/cms';
 import { applyPlanChange } from '../services/plan';
 import { bootstrapStripePrices } from '../services/stripe';
+import { createUgcJob } from '../services/ugcVideoService';
+import { sanitizeImage } from '../services/imageProcessing';
+import { env } from '../config/env';
+import { validateUpload } from '../utils/fileValidation';
+import { resolveSafeExternalTarget, UnsafeExternalUrlError } from '../utils/safeUrl';
+import { JobStatus, MarketingEventType } from '@prisma/client';
 
 const router = Router();
 
 router.use(requireAuth, requireOwner());
+
+const SYSTEM_CONFIG_ID = 'singleton';
+
+const publicCdn = (() => {
+  try {
+    const base = new URL(env.PUBLIC_CDN_BASE);
+    const basePath = base.pathname.replace(/\/$/, '');
+    return { origin: base.origin, basePath };
+  } catch (_err) {
+    return null;
+  }
+})();
+
+const isPublicCdnAssetUrl = (value: string) => {
+  if (!publicCdn) return false;
+  try {
+    const parsed = new URL(value);
+    if (parsed.origin !== publicCdn.origin) return false;
+    const pathname = parsed.pathname.replace(/\/$/, '');
+    return pathname === publicCdn.basePath || pathname.startsWith(`${publicCdn.basePath}/`);
+  } catch (_err) {
+    return false;
+  }
+};
+
+const createOwnerJobSchema = z.object({
+  imageUrl: z
+    .string()
+    .url()
+    .max(2048)
+    .refine((value) => isPublicCdnAssetUrl(value), { message: 'imageUrl must be an uploaded asset URL' }),
+  productName: z.string().min(1).max(256),
+  prompt: z.string().max(2000).optional().nullable(),
+  language: z.string().min(2).max(12),
+  gender: z.string().min(1).max(32),
+  ageRange: z.string().min(1).max(32),
+  platform: z.string().max(64).optional().nullable(),
+  voiceProfile: z.string().max(64).optional().nullable(),
+  cta: z.string().max(64).optional().nullable(),
+});
+
+const statusMap: Record<string, string> = {
+  done: 'completed',
+  running: 'processing',
+  error: 'failed',
+};
+
+const normalizeStatus = (status: string) => statusMap[status] ?? status;
+
+const resolveVideoUrl = (job: any) => {
+  if (job.videoUrl) return job.videoUrl;
+  const outputs = job.outputs;
+  if (Array.isArray(outputs) && outputs.length > 0) {
+    const first = outputs[0];
+    if (first && typeof first === 'object' && 'url' in first) {
+      return (first as any).url as string;
+    }
+  }
+  return undefined;
+};
+
+const redactCallbackToken = (job: any) => {
+  const options = job?.options;
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    return job;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { callbackToken: _callbackToken, callbackTokenHash: _callbackTokenHash, ...rest } = options as Record<string, unknown>;
+  return { ...job, options: rest };
+};
+
+const resolveSandboxTenant = async () => {
+  const config = await prisma.systemConfig.findUnique({
+    where: { id: SYSTEM_CONFIG_ID },
+    select: { sandboxTenantId: true },
+  });
+  if (!config?.sandboxTenantId) return null;
+  return prisma.tenant.findUnique({ where: { id: config.sandboxTenantId } });
+};
 
 router.get('/tenants', async (_req, res) => {
   const tenants = await prisma.tenant.findMany({
@@ -203,7 +291,7 @@ router.post('/impersonate', async (req, res) => {
   const adminUser = await prisma.user.findFirst({
     where: { tenantId: tenant.id, role: 'tenant_admin' },
     orderBy: { createdAt: 'asc' },
-    select: { id: true, role: true },
+    select: { id: true, role: true, tokenVersion: true },
   });
   if (!adminUser) {
     return res.status(404).json({ error: 'Tenant admin not found' });
@@ -215,9 +303,153 @@ router.post('/impersonate', async (req, res) => {
     tenantId: tenant.id,
     ownerId: req.auth?.ownerId,
     impersonatedTenantId: tenant.id,
+    tokenVersion: adminUser.tokenVersion ?? 0,
+  });
+
+  await prisma.audit.create({
+    data: {
+      tenantId: tenant.id,
+      action: 'owner_impersonate',
+      details: {
+        ownerId: req.auth?.ownerId ?? null,
+        targetTenantId: tenant.id,
+        impersonatedUserId: adminUser.id,
+        ip: req.ip ?? null,
+        userAgent: req.get('user-agent') ?? null,
+      },
+    },
   });
 
   res.json({ token, tenant });
+});
+
+router.post('/ugc/uploads/hero', upload.single('image'), async (req, res, next) => {
+  try {
+    const sandboxTenant = await resolveSandboxTenant();
+    if (!sandboxTenant) {
+      return res.status(400).json({ error: 'sandbox_not_configured' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Image file is required' });
+    }
+    try {
+      validateUpload(req.file);
+    } catch (err: any) {
+      return res.status(400).json({ error: err?.message ?? 'Invalid upload' });
+    }
+
+    let sanitized;
+    try {
+      sanitized = await sanitizeImage(req.file);
+    } catch (_err) {
+      return res.status(400).json({ error: 'Invalid image file' });
+    }
+
+    const contentType = sanitized.ext === 'png' ? 'image/png' : 'image/jpeg';
+    const key = `ugc/inputs/${sandboxTenant.id}/${Date.now()}-${crypto.randomBytes(3).toString('hex')}.${sanitized.ext}`;
+    const imageUrl = await uploadBuffer(sanitized.buffer, key, contentType);
+
+    await prisma.asset.create({
+      data: {
+        tenantId: sandboxTenant.id,
+        type: 'input',
+        url: imageUrl,
+        meta: {
+          kind: 'ugc_hero',
+          originalName: req.file.originalname,
+        },
+      },
+    });
+
+    res.json({ imageUrl });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/ugc/jobs', async (req, res, next) => {
+  try {
+    const sandboxTenant = await resolveSandboxTenant();
+    if (!sandboxTenant) {
+      return res.status(400).json({ error: 'sandbox_not_configured' });
+    }
+    const parsed = createOwnerJobSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
+    }
+    const payload = parsed.data;
+    const result = await createUgcJob({
+      tenantId: sandboxTenant.id,
+      tenantName: sandboxTenant.name,
+      payload,
+      skipQuota: true,
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/ugc/jobs', async (req, res, next) => {
+  try {
+    const sandboxTenant = await resolveSandboxTenant();
+    if (!sandboxTenant) {
+      return res.status(400).json({ error: 'sandbox_not_configured' });
+    }
+    const page = Number(req.query.page ?? 1);
+    const limit = Math.min(Number(req.query.limit ?? 20), 50);
+    const statusParam = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const where: any = { tenantId: sandboxTenant.id };
+    if (statusParam) {
+      const statusFilterMap: Record<string, string[]> = {
+        completed: ['completed', 'done'],
+        processing: ['processing', 'running'],
+        failed: ['failed', 'error'],
+      };
+      where.status = { in: statusFilterMap[statusParam] ?? [statusParam] };
+    }
+
+    const [jobs, total] = await Promise.all([
+      prisma.job.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.job.count({ where }),
+    ]);
+
+    const data = jobs.map((job) => ({
+      ...redactCallbackToken(job),
+      status: normalizeStatus(job.status),
+      videoUrl: resolveVideoUrl(job),
+    }));
+
+    res.json({
+      data,
+      pagination: { page, pageSize: limit, total },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/ugc/jobs/:jobId', async (req, res, next) => {
+  try {
+    const sandboxTenant = await resolveSandboxTenant();
+    if (!sandboxTenant) {
+      return res.status(400).json({ error: 'sandbox_not_configured' });
+    }
+    const job = await prisma.job.findFirst({
+      where: { id: req.params.jobId, tenantId: sandboxTenant.id },
+    });
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    res.json({ ...redactCallbackToken(job), status: normalizeStatus(job.status), videoUrl: resolveVideoUrl(job) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get('/cms/:section', async (req, res) => {
@@ -239,18 +471,21 @@ router.get('/coupons', async (_req, res) => {
 
 router.post('/coupons', async (req, res) => {
   const body = z.object({
-    code: z.string().min(1),
+    code: z.string().trim().min(1),
     type: z.enum(['percent', 'fixed']),
-    value: z.number().int().min(1),
-    expiresAt: z.coerce.date().optional(),
+    value: z.coerce.number().int().min(1),
+    expiresAt: z.coerce.date().optional().nullable(),
+    maxUses: z.coerce.number().int().min(1).optional().nullable(),
   }).parse(req.body);
 
+  const normalizedCode = body.code.trim().toUpperCase();
   const coupon = await prisma.coupon.create({
     data: {
-      code: body.code,
+      code: normalizedCode,
       type: body.type,
       value: body.value,
-      expiresAt: body.expiresAt,
+      expiresAt: body.expiresAt ?? undefined,
+      maxUses: body.maxUses ?? null,
     },
   });
   res.json(coupon);
@@ -259,6 +494,60 @@ router.post('/coupons', async (req, res) => {
 router.delete('/coupons/:id', async (req, res) => {
   await prisma.coupon.delete({ where: { id: req.params.id } });
   res.json({ ok: true });
+});
+
+// Subscription cancellations
+router.get('/cancellations', async (_req, res) => {
+  const cancellations = await prisma.subscriptionCancellation.findMany({
+    orderBy: { requestedAt: 'desc' },
+    include: {
+      tenant: { select: { id: true, name: true } },
+      user: { select: { email: true } },
+    },
+  });
+
+  const summary = {
+    total: cancellations.length,
+    byPlan: {} as Record<string, number>,
+    byInterval: {} as Record<string, number>,
+    byReason: {} as Record<string, number>,
+    avgMonthsActive: 0,
+  };
+
+  let monthsSum = 0;
+  let monthsCount = 0;
+
+  const items = cancellations.map((entry) => {
+    const planKey = entry.planCode ?? 'unknown';
+    const intervalKey = entry.billingInterval ?? 'monthly';
+    const reasonKey = entry.reason ?? 'unknown';
+    summary.byPlan[planKey] = (summary.byPlan[planKey] ?? 0) + 1;
+    summary.byInterval[intervalKey] = (summary.byInterval[intervalKey] ?? 0) + 1;
+    summary.byReason[reasonKey] = (summary.byReason[reasonKey] ?? 0) + 1;
+    if (typeof entry.monthsActive === 'number') {
+      monthsSum += entry.monthsActive;
+      monthsCount += 1;
+    }
+    return {
+      id: entry.id,
+      tenantId: entry.tenantId,
+      tenantName: entry.tenant?.name ?? null,
+      userEmail: entry.user?.email ?? null,
+      planCode: entry.planCode,
+      billingInterval: entry.billingInterval,
+      reason: entry.reason,
+      details: entry.details,
+      monthsActive: entry.monthsActive,
+      requestedAt: entry.requestedAt,
+      effectiveAt: entry.effectiveAt,
+      canceledAt: entry.canceledAt,
+      stripeSubscriptionId: entry.stripeSubscriptionId,
+    };
+  });
+
+  summary.avgMonthsActive = monthsCount > 0 ? Math.round((monthsSum / monthsCount) * 10) / 10 : 0;
+
+  res.json({ summary, items });
 });
 
 
@@ -437,6 +726,27 @@ router.put('/n8n-config', async (req, res) => {
     updateData.n8nProcessPath = body.n8nProcessPath?.trim() || null;
   }
 
+  if (updateData.n8nBaseUrl && updateData.n8nProcessPath) {
+    if (!String(updateData.n8nProcessPath).startsWith('/')) {
+      return res.status(400).json({ error: 'n8n_process_path_invalid' });
+    }
+    const allowlist = (env.n8nHostAllowlist ?? '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase().replace(/\.$/, ''))
+      .filter(Boolean);
+    const url = new URL(String(updateData.n8nProcessPath), String(updateData.n8nBaseUrl)).toString();
+    try {
+      await resolveSafeExternalTarget(url, {
+        allowHttp: !env.isProd,
+        allowedHostnames: allowlist,
+        isProd: env.isProd,
+      });
+    } catch (err: any) {
+      const message = err instanceof UnsafeExternalUrlError ? err.message : 'Invalid n8n URL';
+      return res.status(400).json({ error: 'n8n_url_invalid', message });
+    }
+  }
+
   if (body.n8nInternalToken !== undefined) {
     const token = body.n8nInternalToken?.trim();
     if (token && token.length < 32) {
@@ -455,6 +765,153 @@ router.put('/n8n-config', async (req, res) => {
     n8nBaseUrl: config.n8nBaseUrl,
     n8nProcessPath: config.n8nProcessPath,
     n8nInternalTokenSet: Boolean(config.n8nInternalToken),
+  });
+});
+
+// === Owner Analytics ===
+
+const parseDateParam = (value?: string | string[] | null) => {
+  if (!value || Array.isArray(value)) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+router.get('/analytics', async (req, res) => {
+  const now = new Date();
+  const defaultStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  let start = parseDateParam(req.query.start as string) ?? defaultStart;
+  let end = parseDateParam(req.query.end as string) ?? now;
+
+  if (end < start) {
+    const temp = start;
+    start = end;
+    end = temp;
+  }
+
+  const range = { gte: start, lte: end };
+
+  const [
+    activeTenants,
+    newSignups,
+    churnCount,
+    completedVideos,
+    activeTenantsWithPlan,
+    activePaidTenants,
+  ] = await Promise.all([
+    prisma.tenant.count({ where: { status: 'active' } }),
+    prisma.tenant.count({ where: { createdAt: range } }),
+    prisma.subscriptionCancellation.count({ where: { requestedAt: range } }),
+    prisma.job.count({
+      where: {
+        status: { in: [JobStatus.completed, JobStatus.done] },
+        finishedAt: range,
+      },
+    }),
+    prisma.tenant.findMany({
+      where: { status: 'active' },
+      include: { planDetails: true },
+    }),
+    prisma.tenant.findMany({
+      where: { status: 'active', paymentStatus: 'active_paid', planId: { not: null } },
+      include: { planDetails: true },
+    }),
+  ]);
+
+  const planCounts: Record<string, number> = {};
+  for (const tenant of activeTenantsWithPlan) {
+    const planCode = tenant.planDetails?.code ?? 'unknown';
+    planCounts[planCode] = (planCounts[planCode] ?? 0) + 1;
+  }
+
+  const planTotal = Object.values(planCounts).reduce((sum, count) => sum + count, 0);
+  const planDistribution = Object.entries(planCounts).map(([planCode, count]) => ({
+    planCode,
+    count,
+    percent: planTotal > 0 ? Math.round((count / planTotal) * 1000) / 10 : 0,
+  }));
+
+  const ANNUAL_MRR_MULTIPLIER = 10 / 12;
+  const mrrUsd = activePaidTenants.reduce((sum, tenant) => {
+    const monthlyPrice = tenant.planDetails?.monthlyPriceUsd ?? 0;
+    if (!monthlyPrice) return sum;
+    const multiplier = tenant.billingInterval === 'annual' ? ANNUAL_MRR_MULTIPLIER : 1;
+    return sum + monthlyPrice * multiplier;
+  }, 0);
+
+  const funnelTypes: MarketingEventType[] = [
+    MarketingEventType.visit,
+    MarketingEventType.signup_started,
+    MarketingEventType.checkout_started,
+    MarketingEventType.payment_completed,
+  ];
+
+  const funnelCounts = await Promise.all(
+    funnelTypes.map(async (eventType) => {
+      const sessions = await prisma.marketingEvent.findMany({
+        where: { eventType, createdAt: range },
+        distinct: ['sessionId'],
+        select: { sessionId: true },
+      });
+      return sessions.length;
+    }),
+  );
+
+  const visitTotal = funnelCounts[0] ?? 0;
+  const funnel = funnelTypes.map((eventType, index) => ({
+    eventType,
+    count: funnelCounts[index] ?? 0,
+    percent: visitTotal > 0 ? Math.round(((funnelCounts[index] ?? 0) / visitTotal) * 1000) / 10 : 0,
+  }));
+
+  const sourceRows = await prisma.marketingEvent.groupBy({
+    by: ['utmSource', 'utmMedium', 'utmCampaign'],
+    where: { eventType: MarketingEventType.visit, createdAt: range },
+    _count: { id: true },
+    orderBy: { _count: { id: 'desc' } },
+    take: 10,
+  });
+
+  const referrerRows = await prisma.marketingEvent.groupBy({
+    by: ['referrer'],
+    where: { eventType: MarketingEventType.visit, createdAt: range },
+    _count: { id: true },
+    orderBy: { _count: { id: 'desc' } },
+    take: 10,
+  });
+
+  const marketingSources = sourceRows.map((row) => ({
+    source: row.utmSource ?? 'direct',
+    medium: row.utmMedium ?? 'none',
+    campaign: row.utmCampaign ?? '—',
+    sessions: row._count?.id ?? 0,
+  }));
+
+  const referrers = referrerRows.map((row) => ({
+    referrer: row.referrer ?? 'Direct',
+    sessions: row._count?.id ?? 0,
+  }));
+
+  const churnRate = activeTenants > 0 ? Math.round((churnCount / activeTenants) * 1000) / 10 : 0;
+
+  res.json({
+    range: { start, end },
+    metrics: {
+      activeTenants,
+      mrrUsd: Math.round(mrrUsd * 100) / 100,
+      newSignups,
+      churnCount,
+      churnRate,
+      totalVideos: completedVideos,
+    },
+    planDistribution: {
+      total: planTotal,
+      items: planDistribution,
+    },
+    funnel,
+    marketing: {
+      sources: marketingSources,
+      referrers,
+    },
   });
 });
 
@@ -486,8 +943,6 @@ router.get('/users', async (_req, res) => {
   res.json({ users: data });
 });
 
-const SYSTEM_CONFIG_ID = 'singleton';
-
 const normalizeNullableString = (value?: string | null) => {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -508,7 +963,16 @@ const serializeSystemConfig = (config: any) => ({
   stripePriceIdStarter: config.stripePriceIdStarter ?? null,
   stripePriceIdGrowth: config.stripePriceIdGrowth ?? null,
   stripePriceIdScale: config.stripePriceIdScale ?? null,
+  stripePriceIdStarterAnnual: config.stripePriceIdStarterAnnual ?? null,
+  stripePriceIdGrowthAnnual: config.stripePriceIdGrowthAnnual ?? null,
+  stripePriceIdScaleAnnual: config.stripePriceIdScaleAnnual ?? null,
   sandboxTenantId: config.sandboxTenantId ?? null,
+  customHeadCode: config.customHeadCode ?? null,
+  customBodyStart: config.customBodyStart ?? null,
+  customBodyEnd: config.customBodyEnd ?? null,
+  googleOAuthClientId: config.googleOAuthClientId ?? null,
+  googleOAuthClientSecretSet: Boolean(config.googleOAuthClientSecretEncrypted),
+  googleOAuthRedirectUri: `${env.API_PUBLIC_URL}/api/auth/google/callback`,
   updatedAt: config.updatedAt,
 });
 
@@ -536,7 +1000,15 @@ router.put('/system-config', async (req, res) => {
       stripePriceIdStarter: z.string().optional().nullable(),
       stripePriceIdGrowth: z.string().optional().nullable(),
       stripePriceIdScale: z.string().optional().nullable(),
+      stripePriceIdStarterAnnual: z.string().optional().nullable(),
+      stripePriceIdGrowthAnnual: z.string().optional().nullable(),
+      stripePriceIdScaleAnnual: z.string().optional().nullable(),
       sandboxTenantId: z.string().optional().nullable(),
+      customHeadCode: z.string().optional().nullable(),
+      customBodyStart: z.string().optional().nullable(),
+      customBodyEnd: z.string().optional().nullable(),
+      googleOAuthClientId: z.string().optional().nullable(),
+      googleOAuthClientSecret: z.string().optional().nullable(),
     })
     .parse(req.body);
 
@@ -550,7 +1022,14 @@ router.put('/system-config', async (req, res) => {
     stripePriceIdStarter: normalizeNullableString(body.stripePriceIdStarter),
     stripePriceIdGrowth: normalizeNullableString(body.stripePriceIdGrowth),
     stripePriceIdScale: normalizeNullableString(body.stripePriceIdScale),
+    stripePriceIdStarterAnnual: normalizeNullableString(body.stripePriceIdStarterAnnual),
+    stripePriceIdGrowthAnnual: normalizeNullableString(body.stripePriceIdGrowthAnnual),
+    stripePriceIdScaleAnnual: normalizeNullableString(body.stripePriceIdScaleAnnual),
     sandboxTenantId: normalizeNullableString(body.sandboxTenantId),
+    customHeadCode: normalizeNullableString(body.customHeadCode),
+    customBodyStart: normalizeNullableString(body.customBodyStart),
+    customBodyEnd: normalizeNullableString(body.customBodyEnd),
+    googleOAuthClientId: normalizeNullableString(body.googleOAuthClientId),
   };
 
   if (body.smtpPass !== undefined) {
@@ -566,6 +1045,11 @@ router.put('/system-config', async (req, res) => {
   if (body.stripeWebhookSecret !== undefined) {
     const secret = (body.stripeWebhookSecret ?? '').trim();
     updateData.stripeWebhookSecretEncrypted = secret.length > 0 ? encrypt(secret) : null;
+  }
+
+  if (body.googleOAuthClientSecret !== undefined) {
+    const secret = (body.googleOAuthClientSecret ?? '').trim();
+    updateData.googleOAuthClientSecretEncrypted = secret.length > 0 ? encrypt(secret) : null;
   }
 
   Object.keys(updateData).forEach((key) => updateData[key] === undefined && delete updateData[key]);
@@ -602,6 +1086,92 @@ router.post('/system-config/test-email', async (_req, res) => {
     return res.status(500).json({ ok: false });
   }
   return res.json({ ok: true });
+});
+
+// === Showcase Videos Management ===
+
+router.get('/showcase-videos', async (_req, res) => {
+  const videos = await prisma.showcaseVideo.findMany({
+    orderBy: { sortOrder: 'asc' },
+  });
+  res.json(videos);
+});
+
+router.post('/showcase-videos', async (req, res) => {
+  const body = z.object({
+    title: z.string().optional().nullable(),
+    videoUrl: z.string().url().min(1),
+    thumbnailUrl: z.string().url().optional().nullable(),
+    sortOrder: z.coerce.number().int().min(0).optional(),
+    isActive: z.boolean().optional(),
+  }).parse(req.body);
+
+  const video = await prisma.showcaseVideo.create({
+    data: {
+      title: body.title ?? null,
+      videoUrl: body.videoUrl,
+      thumbnailUrl: body.thumbnailUrl ?? null,
+      sortOrder: body.sortOrder ?? 0,
+      isActive: body.isActive ?? true,
+    },
+  });
+  res.json(video);
+});
+
+router.put('/showcase-videos/:id', async (req, res) => {
+  const body = z.object({
+    title: z.string().optional().nullable(),
+    videoUrl: z.string().url().optional(),
+    thumbnailUrl: z.string().url().optional().nullable(),
+    sortOrder: z.coerce.number().int().min(0).optional(),
+    isActive: z.boolean().optional(),
+  }).parse(req.body);
+
+  const existing = await prisma.showcaseVideo.findUnique({ where: { id: req.params.id } });
+  if (!existing) {
+    return res.status(404).json({ error: 'Video not found' });
+  }
+
+  const video = await prisma.showcaseVideo.update({
+    where: { id: req.params.id },
+    data: {
+      title: body.title !== undefined ? body.title : undefined,
+      videoUrl: body.videoUrl,
+      thumbnailUrl: body.thumbnailUrl !== undefined ? body.thumbnailUrl : undefined,
+      sortOrder: body.sortOrder,
+      isActive: body.isActive,
+    },
+  });
+  res.json(video);
+});
+
+router.delete('/showcase-videos/:id', async (req, res) => {
+  const existing = await prisma.showcaseVideo.findUnique({ where: { id: req.params.id } });
+  if (!existing) {
+    return res.status(404).json({ error: 'Video not found' });
+  }
+  await prisma.showcaseVideo.delete({ where: { id: req.params.id } });
+  res.json({ ok: true });
+});
+
+router.post('/showcase-videos/reorder', async (req, res) => {
+  const body = z.object({
+    orderedIds: z.array(z.string().min(1)),
+  }).parse(req.body);
+
+  await prisma.$transaction(
+    body.orderedIds.map((id, index) =>
+      prisma.showcaseVideo.update({
+        where: { id },
+        data: { sortOrder: index },
+      })
+    )
+  );
+
+  const videos = await prisma.showcaseVideo.findMany({
+    orderBy: { sortOrder: 'asc' },
+  });
+  res.json(videos);
 });
 
 export default router;

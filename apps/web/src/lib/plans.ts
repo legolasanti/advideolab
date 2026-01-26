@@ -4,6 +4,8 @@ type PlanDefinition = {
   code: PlanCode;
   name: string;
   priceUsd: number;
+  annualPriceUsd: number;
+  monthlyEquivalentUsd: number;
   quota: number;
   description: string;
 };
@@ -13,6 +15,8 @@ export const PLAN_DEFINITIONS: Record<PlanCode, PlanDefinition> = {
     code: 'starter',
     name: 'Starter',
     priceUsd: 69,
+    annualPriceUsd: 690,
+    monthlyEquivalentUsd: 57.5,
     quota: 10,
     description: '10 videos / month',
   },
@@ -20,6 +24,8 @@ export const PLAN_DEFINITIONS: Record<PlanCode, PlanDefinition> = {
     code: 'growth',
     name: 'Growth',
     priceUsd: 179,
+    annualPriceUsd: 1790,
+    monthlyEquivalentUsd: 149.17,
     quota: 30,
     description: '30 videos / month',
   },
@@ -27,6 +33,8 @@ export const PLAN_DEFINITIONS: Record<PlanCode, PlanDefinition> = {
     code: 'scale',
     name: 'Scale',
     priceUsd: 499,
+    annualPriceUsd: 4990,
+    monthlyEquivalentUsd: 415.83,
     quota: 100,
     description: '100 videos / month',
   },

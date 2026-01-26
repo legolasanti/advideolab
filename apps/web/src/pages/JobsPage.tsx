@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import clsx from 'clsx';
 import { useSearchParams } from 'react-router-dom';
 import { useJobs } from '../hooks/useJobs';
 import type { Job } from '../hooks/useJobs';
 import { useAuth } from '../providers/AuthProvider';
+import Button from '../components/ui/Button';
+import { JobCardSkeleton } from '../components/ui/Skeleton';
 
 const statusFilters = ['all', 'pending', 'processing', 'completed', 'failed'];
 
@@ -12,11 +15,42 @@ const JobsPage = () => {
   const highlightedJobId = searchParams.get('jobId');
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<string>('all');
-  const isEnabled = !isOwner && tenantStatus === 'active';
-  const { jobs, pagination, isLoading } = useJobs(page, status === 'all' ? undefined : status, undefined, isEnabled);
+  const [copiedJobId, setCopiedJobId] = useState<string | null>(null);
+  const jobsScope = isOwner ? 'owner' : 'tenant';
+  const isEnabled = isOwner ? true : tenantStatus === 'active';
+  const { jobs, pagination, isLoading, error } = useJobs(
+    page,
+    status === 'all' ? undefined : status,
+    undefined,
+    isEnabled,
+    jobsScope,
+  );
   const jobsList: Job[] = jobs;
 
   const totalPages = pagination ? Math.ceil(pagination.total / pagination.pageSize) : 1;
+
+  const buildDownloadName = (job: Job) => {
+    const base = (job.productName ?? job.id).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return `${base || job.id}.mp4`;
+  };
+
+  const handleCopyUrl = async (job: Job) => {
+    if (!job.videoUrl) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(job.videoUrl);
+        setCopiedJobId(job.id);
+        window.setTimeout(() => {
+          setCopiedJobId((current) => (current === job.id ? null : current));
+        }, 2000);
+        return;
+      }
+      window.prompt('Copy URL', job.videoUrl);
+    } catch (err) {
+      console.error(err);
+      window.alert('Unable to copy the URL.');
+    }
+  };
 
   useEffect(() => {
     if (highlightedJobId && jobsList.some((job) => job.id === highlightedJobId)) {
@@ -29,15 +63,7 @@ const JobsPage = () => {
     }
   }, [highlightedJobId, jobsList]);
 
-  if (isOwner) {
-    return (
-      <section className="rounded-3xl border border-white/5 bg-slate-900/60 p-6 text-slate-200">
-        Owners cannot view tenant jobs directly. Impersonate a tenant from the Tenants tab.
-      </section>
-    );
-  }
-
-  if (tenantStatus && tenantStatus !== 'active') {
+  if (!isOwner && tenantStatus && tenantStatus !== 'active') {
     return (
       <section className="rounded-3xl border border-amber-500/30 bg-amber-500/10 p-6 text-sm text-amber-100">
         Job history is available once your account is active. Current status: {tenantStatus}.
@@ -54,18 +80,18 @@ const JobsPage = () => {
         </div>
         <div className="flex flex-wrap gap-2">
           {statusFilters.map((s) => (
-            <button
+            <Button
               key={s}
-              className={`rounded-full px-4 py-1 text-xs font-semibold ${
-                status === s ? 'bg-indigo-500 text-white' : 'bg-slate-900/60 text-slate-300'
-              }`}
+              variant={status === s ? 'primary' : 'ghost'}
+              size="sm"
+              className={clsx('rounded-full px-4', status !== s && 'bg-slate-900/60')}
               onClick={() => {
                 setStatus(s);
                 setPage(1);
               }}
             >
               {s}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -75,93 +101,135 @@ const JobsPage = () => {
       </div>
 
       <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-4 backdrop-blur">
-        {isLoading && <p className="text-sm text-slate-400">Loading jobs...</p>}
-        <div className="space-y-4">
-          {jobsList.map((job: Job) => {
-            const mediaSrc = job.videoUrl ?? job.imageUrl ?? null;
-            const isProcessing = job.status === 'pending' || job.status === 'processing';
-            const statusClass =
-              job.status === 'completed'
-                ? 'bg-emerald-500/20 text-emerald-100'
-                : isProcessing
-                ? 'bg-amber-500/20 text-amber-100'
-                : job.status === 'failed'
-                ? 'bg-rose-500/20 text-rose-100'
-                : 'bg-sky-500/20 text-sky-100';
-            return (
-              <div
-                key={job.id}
-                id={`job-${job.id}`}
-                className="grid gap-4 rounded-2xl border border-white/10 p-4 md:grid-cols-[180px_1fr_auto]"
-              >
-                <div className="h-48 overflow-hidden rounded-xl bg-slate-900/60">
-                  {mediaSrc ? (
-                    job.videoUrl ? (
-                      <video src={mediaSrc} className="h-full w-full object-cover" playsInline muted loop controls />
+        {error && (
+          <p className="text-sm text-rose-300">
+            {isOwner ? 'Unable to load sandbox jobs. Configure a sandbox tenant in Owner → Settings.' : 'Failed to load jobs.'}
+          </p>
+        )}
+        {isLoading ? (
+          <div className="space-y-4">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <JobCardSkeleton key={`job-skeleton-${index}`} />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {jobsList.map((job: Job) => {
+              const mediaSrc = job.videoUrl ?? job.imageUrl ?? null;
+              const isProcessing = job.status === 'pending' || job.status === 'processing';
+              const statusClass =
+                job.status === 'completed'
+                  ? 'bg-emerald-500/20 text-emerald-100'
+                  : isProcessing
+                  ? 'bg-amber-500/20 text-amber-100'
+                  : job.status === 'failed'
+                  ? 'bg-rose-500/20 text-rose-100'
+                  : 'bg-sky-500/20 text-sky-100';
+              return (
+                <div
+                  key={job.id}
+                  id={`job-${job.id}`}
+                  className="grid gap-4 rounded-2xl border border-white/10 p-4 md:grid-cols-[180px_1fr_auto]"
+                >
+                  <div className="h-48 overflow-hidden rounded-xl bg-slate-900/60">
+                    {mediaSrc ? (
+                      job.videoUrl ? (
+                        <video src={mediaSrc} className="h-full w-full object-cover" playsInline muted loop controls />
+                      ) : (
+                        <img src={mediaSrc} alt={job.productName ?? 'UGC job'} className="h-full w-full object-cover" />
+                      )
                     ) : (
-                      <img src={mediaSrc} alt={job.productName ?? 'UGC job'} className="h-full w-full object-cover" />
-                    )
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">No preview</div>
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">
-                    {job.productName ?? 'UGC video'} • {new Date(job.createdAt).toLocaleString()}
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {job.language ?? 'multi-lang'} • {job.platform ?? 'multi-platform'} • {job.voiceProfile ?? 'voice'}
-                  </p>
-                  {job.prompt && <p className="mt-2 text-sm text-slate-300 line-clamp-2">{job.prompt}</p>}
-                  {job.videoUrl && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <a
-                        className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-200 hover:border-indigo-400"
-                        href={job.videoUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        View video
-                      </a>
-                    </div>
-                  )}
-                  {job.errorMessage && job.status === 'failed' && (
-                    <p className="mt-2 text-xs text-rose-200" title={job.errorMessage ?? undefined}>
-                      Error: {job.errorMessage}
+                      <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">No preview</div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      {job.productName ?? 'UGC video'} • {new Date(job.createdAt).toLocaleString()}
                     </p>
-                  )}
+                    <p className="text-xs text-slate-400">
+                      {job.language ?? 'multi-lang'} • {job.platform ?? 'multi-platform'} • {job.voiceProfile ?? 'voice'}
+                    </p>
+                    {job.prompt && <p className="mt-2 text-sm text-slate-300 line-clamp-2">{job.prompt}</p>}
+                    {job.videoUrl && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Button
+                          as="a"
+                          href={job.videoUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          variant="secondary"
+                          size="sm"
+                          className="rounded-full"
+                        >
+                          View video
+                        </Button>
+                        <Button
+                          as="a"
+                          href={job.videoUrl}
+                          download={buildDownloadName(job)}
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-full"
+                        >
+                          Download
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-full"
+                          onClick={() => handleCopyUrl(job)}
+                        >
+                          Copy URL
+                        </Button>
+                        {copiedJobId === job.id && (
+                          <span className="text-xs text-emerald-200" aria-live="polite">
+                            Copied
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {job.errorMessage && job.status === 'failed' && (
+                      <p className="mt-2 text-xs text-rose-200" title={job.errorMessage ?? undefined}>
+                        Error: {job.errorMessage}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end justify-between">
+                    <span className={`rounded-full px-4 py-1 text-xs font-semibold ${statusClass}`}>
+                      {job.status}
+                    </span>
+                    {job.completedAt && (
+                      <p className="text-[11px] text-slate-400">Completed {new Date(job.completedAt).toLocaleString()}</p>
+                    )}
+                  </div>
                 </div>
-                <div className="flex flex-col items-end justify-between">
-                  <span className={`rounded-full px-4 py-1 text-xs font-semibold ${statusClass}`}>
-                    {job.status}
-                  </span>
-                  {job.completedAt && (
-                    <p className="text-[11px] text-slate-400">Completed {new Date(job.completedAt).toLocaleString()}</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {pagination && jobsList.length === 0 && <p className="text-sm text-slate-400">No jobs found.</p>}
+              );
+            })}
+          </div>
+        )}
+        {!isLoading && pagination && jobsList.length === 0 && <p className="text-sm text-slate-400">No jobs found.</p>}
         <div className="mt-4 flex items-center justify-between text-sm text-slate-300">
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             disabled={page === 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="rounded-full border border-white/10 px-3 py-1 disabled:opacity-40"
+            className="rounded-full"
           >
             Previous
-          </button>
+          </Button>
           <span>
             Page {page} of {totalPages || 1}
           </span>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             disabled={page === totalPages}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            className="rounded-full border border-white/10 px-3 py-1 disabled:opacity-40"
+            className="rounded-full"
           >
             Next
-          </button>
+          </Button>
         </div>
       </div>
     </section>

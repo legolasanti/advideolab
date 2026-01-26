@@ -25,7 +25,7 @@ const CookiePolicyPage = () => {
   const content = applyLegalTemplate(legal.cookieMarkdown, legal);
 
   return (
-    <div className="bg-slate-950 min-h-screen px-6 pt-28 pb-20">
+    <div className="bg-white min-h-screen px-6 pt-28 pb-20">
       <Seo
         title={`Cookie Policy – ${legal.company.name}`}
         description="Learn what cookies we use and how you can control them."
@@ -33,15 +33,15 @@ const CookiePolicyPage = () => {
       />
 
       <div className="mx-auto max-w-3xl">
-        <header className="rounded-[28px] border border-white/10 bg-slate-900/60 p-8 backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Legal</p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white md:text-5xl">Cookie Policy</h1>
-          <p className="mt-3 text-sm text-slate-300">
+        <header className="rounded-[28px] border border-slate-200 bg-slate-50 p-8 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.4em] text-[#2e90fa]">Legal</p>
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900 md:text-5xl">Cookie Policy</h1>
+          <p className="mt-3 text-sm text-slate-600">
             This policy explains how {legal.company.name} uses cookies and similar technologies.
           </p>
         </header>
 
-        <section className="mt-8 rounded-[28px] border border-white/10 bg-slate-900/40 p-8 backdrop-blur">
+        <section className="mt-8 rounded-[28px] border border-slate-200 bg-white p-8 shadow-sm">
           <MarkdownRenderer>{content}</MarkdownRenderer>
         </section>
       </div>

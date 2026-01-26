@@ -12,6 +12,6 @@ process.env.PUBLIC_CDN_BASE = 'https://cdn.example.com';
 process.env.API_PUBLIC_URL = 'https://api.example.com';
 process.env.USE_CLOUDINARY = 'false';
 process.env.N8N_SYNC = 'false';
-process.env.ENCRYPTION_KEY = '12345678901234567890123456789012';
+process.env.ENCRYPTION_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
 process.env.RATE_LIMIT_WINDOW_MS = '60000';
 process.env.RATE_LIMIT_MAX = '100';

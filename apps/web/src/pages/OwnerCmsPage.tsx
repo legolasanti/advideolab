@@ -18,7 +18,7 @@ import {
 type FeatureItem = { title: string; description: string; icon?: string };
 type TestimonialItem = { name: string; role: string; quote: string; avatarUrl?: string };
 type ShowcaseVideo = { title: string; description: string; videoUrl: string };
-type HowItWorksItem = { title: string; description: string; step: string };
+type HowItWorksItem = { title: string; description: string; step: string; imageUrl?: string };
 type ProductSection = { title: string; description: string; image: string };
 type LegalContent = typeof legalDefaults;
 
@@ -165,7 +165,7 @@ const OwnerCmsPage = () => {
   }, [showcaseQuery.data, showcaseFallback]);
 
   const howFallback = useMemo<HowItWorksItem[]>(
-    () => howItWorksFallback.map((item) => ({ ...item })),
+    () => howItWorksFallback.map((item) => ({ ...item, imageUrl: undefined })),
     [],
   );
   const [howForm, setHowForm] = useState<HowItWorksItem[]>(howFallback);
@@ -260,9 +260,14 @@ const OwnerCmsPage = () => {
               onChange={(value) => setHeroForm((prev) => ({ ...prev, secondaryCtaLabel: value }))}
             />
             <InputField
-              label="Background video URL"
+              label="Hero video URL"
               value={heroForm.videoUrl}
               onChange={(value) => setHeroForm((prev) => ({ ...prev, videoUrl: value }))}
+            />
+            <InputField
+              label="Video poster/thumbnail URL (optional)"
+              value={heroForm.videoPoster ?? ''}
+              onChange={(value) => setHeroForm((prev) => ({ ...prev, videoPoster: value }))}
             />
             <button
               className="rounded-2xl bg-gradient-to-r from-indigo-500 to-sky-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
@@ -503,6 +508,13 @@ const OwnerCmsPage = () => {
                     setHowForm((prev) => prev.map((entry, i) => (i === index ? { ...entry, step: value } : entry)))
                   }
                 />
+                <InputField
+                  label="Image URL (optional)"
+                  value={item.imageUrl ?? ''}
+                  onChange={(value) =>
+                    setHowForm((prev) => prev.map((entry, i) => (i === index ? { ...entry, imageUrl: value || undefined } : entry)))
+                  }
+                />
                 <button
                   type="button"
                   className="text-xs text-rose-400"
@@ -516,7 +528,7 @@ const OwnerCmsPage = () => {
               <button
                 type="button"
                 className="rounded-full border border-white/20 px-4 py-2 text-sm"
-                onClick={() => setHowForm((prev) => [...prev, { title: 'New step', description: '', step: String(prev.length + 1).padStart(2, '0') }])}
+                onClick={() => setHowForm((prev) => [...prev, { title: 'New step', description: '', step: String(prev.length + 1).padStart(2, '0'), imageUrl: undefined }])}
               >
                 Add step
               </button>

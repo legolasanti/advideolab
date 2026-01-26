@@ -68,9 +68,31 @@ const resolveNextBillingDate = (tenant: TenantWithPlan) => {
   return computeNextBillingDate(tenant.billingCycleStart);
 };
 
+const resolveSubscriptionPeriodEnd = (tenant: TenantWithPlan) => {
+  if (tenant.subscriptionPeriodEnd) {
+    return tenant.subscriptionPeriodEnd;
+  }
+  return resolveNextBillingDate(tenant);
+};
+
+type UsageCycleTenant = Pick<TenantWithPlan, 'billingCycleStart' | 'nextBillingDate'>;
+
+export const resolveUsageCycle = (tenant: UsageCycleTenant, now = new Date()) => {
+  let cycleStart = tenant.billingCycleStart;
+  let nextDate = tenant.nextBillingDate ?? computeNextBillingDate(cycleStart);
+  if (nextDate <= now) {
+    while (nextDate <= now) {
+      cycleStart = nextDate;
+      nextDate = computeNextBillingDate(cycleStart);
+    }
+  }
+  return { cycleStart, nextDate };
+};
+
 const buildUsageStats = (tenant: TenantWithPlan) => {
   const limit = calculateLimit(tenant);
   const used = tenant.videosUsedThisCycle;
+  const usageCycle = resolveUsageCycle(tenant);
   return {
     tenant,
     used,
@@ -79,7 +101,10 @@ const buildUsageStats = (tenant: TenantWithPlan) => {
     planName: tenant.planDetails?.name ?? null,
     planCode: tenant.planDetails?.code ?? null,
     billingCycleStart: tenant.billingCycleStart,
-    nextBillingDate: resolveNextBillingDate(tenant),
+    nextBillingDate: usageCycle.nextDate,
+    usageCycleStart: usageCycle.cycleStart,
+    usageCycleEnd: usageCycle.nextDate,
+    subscriptionPeriodEnd: resolveSubscriptionPeriodEnd(tenant),
     bonusCredits: tenant.bonusCredits ?? 0,
   };
 };
@@ -134,8 +159,8 @@ export const ensureTenantReadyForUsage = async (tenantId: string, requestedVideo
 };
 
 const enforceBillingWindow = (tenant: TenantWithPlan) => {
-  const nextBilling = resolveNextBillingDate(tenant);
-  if (nextBilling && new Date() > new Date(nextBilling)) {
+  const subscriptionEnd = resolveSubscriptionPeriodEnd(tenant);
+  if (subscriptionEnd && new Date() > new Date(subscriptionEnd)) {
     throw new BillingPeriodExpiredError('Your billing period has ended. Please renew before launching new jobs.');
   }
 };
@@ -212,14 +237,18 @@ export const incrementUsageOnSuccess = async (tenantId: string, incrementBy = 1)
   });
 };
 
-export const resetUsageForTenant = async (tenantId: string) => {
-  const billingCycleStart = new Date();
+export const resetUsageForTenant = async (
+  tenantId: string,
+  options: { cycleStart?: Date; nextBillingDate?: Date } = {},
+) => {
+  const billingCycleStart = options.cycleStart ?? new Date();
+  const nextBillingDate = options.nextBillingDate ?? computeNextBillingDate(billingCycleStart);
   await prisma.tenant.update({
     where: { id: tenantId },
     data: {
       videosUsedThisCycle: 0,
       billingCycleStart,
-      nextBillingDate: computeNextBillingDate(billingCycleStart),
+      nextBillingDate,
     },
   });
 };

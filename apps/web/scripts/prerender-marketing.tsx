@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LandingPage from '../src/pages/marketing/LandingPage';
 import ProductPage from '../src/pages/marketing/ProductPage';
 import PricingPage from '../src/pages/marketing/PricingPage';
@@ -14,6 +15,16 @@ import PrivacyPolicyPage from '../src/pages/marketing/PrivacyPolicyPage';
 import TermsPage from '../src/pages/marketing/TermsPage';
 import CookiePolicyPage from '../src/pages/marketing/CookiePolicyPage';
 import { MarketingLayoutShell } from '../src/layouts/MarketingLayout';
+
+// Create a QueryClient for SSR (queries won't actually fetch, just use fallbacks)
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      staleTime: Infinity,
+    },
+  },
+});
 
 type RouteEntry = {
   path: string;
@@ -46,9 +57,11 @@ const renderRoute = (route: RouteEntry) => {
   (globalThis as any).__UGC_PRERENDER__ = true;
   const element = React.createElement(route.component);
   const markup = renderToString(
-    <MemoryRouter initialEntries={[route.path]}>
-      <MarketingLayoutShell>{element}</MarketingLayoutShell>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[route.path]}>
+        <MarketingLayoutShell>{element}</MarketingLayoutShell>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
   delete (globalThis as any).__UGC_PRERENDER__;
   return markup;

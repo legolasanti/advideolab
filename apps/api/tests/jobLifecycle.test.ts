@@ -1,8 +1,11 @@
 import { completeJobWithOutputs } from '../src/services/jobService';
 
 const assetCreate = jest.fn();
+const assetDeleteMany = jest.fn();
 const jobUpdate = jest.fn();
 const jobFindUnique = jest.fn();
+const jobFindMany = jest.fn();
+const jobDeleteMany = jest.fn();
 
 jest.mock('../src/lib/prisma', () => ({
   prisma: {
@@ -14,14 +17,24 @@ jest.mock('../src/lib/prisma', () => ({
           findUnique: (...args: any[]) => jobFindUnique(...args),
         },
       }),
+    asset: {
+      deleteMany: (...args: any[]) => assetDeleteMany(...args),
+    },
+    job: {
+      findMany: (...args: any[]) => jobFindMany(...args),
+      deleteMany: (...args: any[]) => jobDeleteMany(...args),
+    },
   },
 }));
 
 describe('job lifecycle', () => {
   beforeEach(() => {
     assetCreate.mockClear();
+    assetDeleteMany.mockReset();
     jobUpdate.mockClear();
     jobFindUnique.mockResolvedValue({ options: { platformFocus: 'tiktok_vertical' } });
+    jobFindMany.mockResolvedValue([]);
+    jobDeleteMany.mockResolvedValue({ count: 0 });
   });
 
   it('records outputs and marks job done', async () => {

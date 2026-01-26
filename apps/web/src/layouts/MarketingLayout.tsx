@@ -41,12 +41,7 @@ const MarketingChrome = ({ children }: { children?: ReactNode }) => {
 
           {/* Logo Section */}
           <NavLink to="/" className="flex items-center gap-2.5 group relative z-10" aria-label="Home">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/25 transition-transform group-hover:scale-105">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="6 3 20 12 6 21 6 3" /></svg>
-            </div>
-            <span className="text-xl font-bold tracking-tight text-white">
-              CINEAI
-            </span>
+            <img src="/logo.png" alt="AdVideoLab" className="h-9 w-auto transition-transform group-hover:scale-105" />
           </NavLink>
 
           {/* Desktop Nav */}
@@ -158,10 +153,7 @@ const MarketingChrome = ({ children }: { children?: ReactNode }) => {
           <div className="grid grid-cols-1 gap-12 md:grid-cols-4 mb-16">
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-400 text-slate-950">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="6 3 20 12 6 21 6 3" /></svg>
-                </div>
-                <span className="text-xl font-bold text-white">{companyName}</span>
+                <img src="/logo.png" alt="AdVideoLab" className="h-8 w-auto" />
               </div>
               <p className="text-slate-400 text-sm leading-relaxed max-w-sm">
                 Create high-converting UGC videos from a single image—optimized for TikTok, Reels, and Shorts.

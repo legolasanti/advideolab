@@ -5,11 +5,14 @@ import { useJobs } from '../hooks/useJobs';
 import type { Job } from '../hooks/useJobs';
 import { formatPlanSummary } from '../lib/plans';
 import api from '../lib/api';
+import { getMarketingContext } from '../lib/marketing';
+import Button from '../components/ui/Button';
+import Skeleton from '../components/ui/Skeleton';
 
 const DashboardPage = () => {
   const { isOwner, tenant, tenantStatus, token } = useAuth();
-  const { data: usage } = useUsage(Boolean(token) && !isOwner);
-  const { jobs } = useJobs(1, undefined, undefined, !isOwner);
+  const { data: usage, isLoading: usageLoading } = useUsage(Boolean(token) && !isOwner);
+  const { jobs, isLoading: jobsLoading } = useJobs(1, undefined, undefined, !isOwner);
   const recentJobs: Job[] = jobs.slice(0, 5);
   const planLimit = usage?.plan?.monthly_limit ?? null;
   const planCode = usage?.plan?.code ?? null;
@@ -64,15 +67,15 @@ const DashboardPage = () => {
             <div className="space-y-3">
               <p>Your account is pending activation. Complete payment to unlock video generation.</p>
               {activationError && <p className="text-xs text-rose-200">{activationError}</p>}
-              <button
+              <Button
                 type="button"
-                className="rounded-2xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-400 disabled:opacity-50"
                 disabled={activationLoading}
                 onClick={async () => {
                   setActivationError(null);
                   setActivationLoading(true);
                   try {
-                    const { data } = await api.post('/tenant/billing/checkout', {});
+                    const marketing = getMarketingContext();
+                    const { data } = await api.post('/tenant/billing/checkout', { marketing });
                     if (data?.url) {
                       window.location.href = data.url;
                       return;
@@ -88,7 +91,7 @@ const DashboardPage = () => {
                 }}
               >
                 {activationLoading ? 'Opening checkout…' : 'Pay now'}
-              </button>
+              </Button>
             </div>
           ) : (
             'Your account is currently suspended. Reach out to support to resolve billing or compliance issues.'
@@ -96,39 +99,47 @@ const DashboardPage = () => {
         </div>
       )}
 
-      {usage && (
+      {usageLoading ? (
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 backdrop-blur">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Plan</p>
-            <p className="mt-2 text-2xl font-semibold text-white">
-              {isUnlimited
-                ? `${usage.plan?.name ?? tenant?.planName ?? usage.plan?.code ?? 'Plan'} · Unlimited videos/month`
-                : formatPlanSummary(
-                    usage.plan?.code,
-                    usage.plan?.name ?? tenant?.planName ?? null,
-                    usage.plan?.monthly_limit ?? tenant?.monthlyVideoLimit ?? null,
-                  )}
-            </p>
-            <p className="text-xs text-slate-400 capitalize">Status: {status}</p>
-            {isUnlimited ? (
-              <p className="text-xs text-slate-400">Unlimited videos</p>
-            ) : planLimit !== null ? (
-              <p className="text-xs text-slate-400">{planLimit} videos / month</p>
-            ) : (
-              <p className="text-xs text-slate-400">No plan</p>
-            )}
-          </div>
-          <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 backdrop-blur">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Credits used</p>
-            <p className="mt-2 text-2xl font-semibold text-white">{usage.used}</p>
-          </div>
-          <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 backdrop-blur">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Credits left</p>
-            <p className="mt-2 text-2xl font-semibold text-white">
-              {isUnlimited ? '∞' : remaining !== null ? remaining : '—'}
-            </p>
-          </div>
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Skeleton key={`usage-skeleton-${index}`} className="h-28 w-full rounded-3xl border border-white/5 bg-white/5" />
+          ))}
         </div>
+      ) : (
+        usage && (
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Plan</p>
+              <p className="mt-2 text-2xl font-semibold text-white">
+                {isUnlimited
+                  ? `${usage.plan?.name ?? tenant?.planName ?? usage.plan?.code ?? 'Plan'} · Unlimited videos/month`
+                  : formatPlanSummary(
+                      usage.plan?.code,
+                      usage.plan?.name ?? tenant?.planName ?? null,
+                      usage.plan?.monthly_limit ?? tenant?.monthlyVideoLimit ?? null,
+                    )}
+              </p>
+              <p className="text-xs text-slate-400 capitalize">Status: {status}</p>
+              {isUnlimited ? (
+                <p className="text-xs text-slate-400">Unlimited videos</p>
+              ) : planLimit !== null ? (
+                <p className="text-xs text-slate-400">{planLimit} videos / month</p>
+              ) : (
+                <p className="text-xs text-slate-400">No plan</p>
+              )}
+            </div>
+            <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Credits used</p>
+              <p className="mt-2 text-2xl font-semibold text-white">{usage.used}</p>
+            </div>
+            <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Credits left</p>
+              <p className="mt-2 text-2xl font-semibold text-white">
+                {isUnlimited ? '∞' : remaining !== null ? remaining : '—'}
+              </p>
+            </div>
+          </div>
+        )
       )}
       {usage && (
         <div
@@ -163,31 +174,38 @@ const DashboardPage = () => {
           <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Newest first</p>
         </div>
         <div className="space-y-4">
-          {recentJobs.map((job: Job) => {
-            const isProcessing = job.status === 'pending' || job.status === 'processing';
-            const statusClass =
-              job.status === 'completed'
-                ? 'bg-emerald-500/20 text-emerald-200'
-                : isProcessing
-                ? 'bg-amber-500/20 text-amber-100'
-                : job.status === 'failed'
-                ? 'bg-rose-500/20 text-rose-100'
-                : 'bg-sky-500/20 text-sky-100';
-            return (
-              <div key={job.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 p-4">
-                <div>
-                  <p className="text-sm font-semibold text-white">
-                    {job.productName ?? 'UGC video'} • {new Date(job.createdAt).toLocaleString()}
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {job.language ?? 'multi-lang'} • {job.platform ?? 'multi-platform'} • {job.voiceProfile ?? 'voice profile'}
-                  </p>
+          {jobsLoading
+            ? Array.from({ length: 3 }).map((_, index) => (
+                <div key={`recent-job-skeleton-${index}`} className="rounded-2xl border border-white/10 p-4">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="mt-3 h-3 w-1/2" />
                 </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass}`}>{job.status}</span>
-              </div>
-            );
-          })}
-          {recentJobs.length === 0 && <p className="text-sm text-slate-400">No jobs yet.</p>}
+              ))
+            : recentJobs.map((job: Job) => {
+                const isProcessing = job.status === 'pending' || job.status === 'processing';
+                const statusClass =
+                  job.status === 'completed'
+                    ? 'bg-emerald-500/20 text-emerald-200'
+                    : isProcessing
+                    ? 'bg-amber-500/20 text-amber-100'
+                    : job.status === 'failed'
+                    ? 'bg-rose-500/20 text-rose-100'
+                    : 'bg-sky-500/20 text-sky-100';
+                return (
+                  <div key={job.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 p-4">
+                    <div>
+                      <p className="text-sm font-semibold text-white">
+                        {job.productName ?? 'UGC video'} • {new Date(job.createdAt).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {job.language ?? 'multi-lang'} • {job.platform ?? 'multi-platform'} • {job.voiceProfile ?? 'voice profile'}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass}`}>{job.status}</span>
+                  </div>
+                );
+              })}
+          {!jobsLoading && recentJobs.length === 0 && <p className="text-sm text-slate-400">No jobs yet.</p>}
         </div>
       </div>
     </section>

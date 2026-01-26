@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+tests
+*.log
+.env
+.env.*
+.DS_Store
+.git
+.gitignore
+.github
+cypress
+playwright

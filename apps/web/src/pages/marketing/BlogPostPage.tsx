@@ -26,11 +26,11 @@ const BlogPostPage = () => {
         enabled: !!slug,
     });
 
-    if (isLoading) return <div className="pt-32 pb-20 text-center text-slate-500">Loading...</div>;
-    if (!post) return <div className="pt-32 pb-20 text-center text-red-500">Post not found</div>;
+    if (isLoading) return <div className="pt-32 pb-20 text-center text-slate-500 bg-white min-h-screen">Loading...</div>;
+    if (!post) return <div className="pt-32 pb-20 text-center text-red-500 bg-white min-h-screen">Post not found</div>;
 
     return (
-        <article className="bg-slate-950 min-h-screen pt-32 pb-20 px-6">
+        <article className="bg-white min-h-screen pt-32 pb-20 px-6">
             <Seo
                 title={`${post.title} – UGC Studio`}
                 description={post.content.slice(0, 150)}
@@ -39,7 +39,7 @@ const BlogPostPage = () => {
             />
 
             <div className="mx-auto max-w-3xl">
-                <Link to="/blog" className="text-sm font-semibold text-emerald-300 hover:text-emerald-200 mb-8 inline-block">
+                <Link to="/blog" className="text-sm font-semibold text-[#2e90fa] hover:text-blue-600 mb-8 inline-block">
                     ← Back to Hub
                 </Link>
 
@@ -47,9 +47,9 @@ const BlogPostPage = () => {
                     <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-4">
                         {post.category || 'Update'} — {new Date(post.createdAt).toLocaleDateString()}
                     </div>
-                    <h1 className="text-4xl md:text-5xl font-bold text-white mb-8 leading-tight">{post.title}</h1>
+                    <h1 className="text-4xl md:text-5xl font-bold text-slate-900 mb-8 leading-tight">{post.title}</h1>
                     {post.image && (
-                        <div className="rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
+                        <div className="rounded-3xl border border-slate-200 overflow-hidden shadow-xl">
                             <img src={post.image} alt={post.title} className="w-full" />
                         </div>
                     )}

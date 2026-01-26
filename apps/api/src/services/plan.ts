@@ -1,4 +1,4 @@
-import type { PaymentStatus } from '@prisma/client';
+import type { BillingInterval, PaymentStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { computeNextBillingDate } from './quota';
 import { sendPlanApprovedNotification } from './email';
@@ -11,6 +11,11 @@ export type ApplyPlanChangeOptions = {
   resetUsage?: boolean;
   bonusCredits?: number;
   paymentStatus?: PaymentStatus;
+  billingInterval?: BillingInterval;
+  subscriptionPeriodStart?: Date | null;
+  subscriptionPeriodEnd?: Date | null;
+  subscriptionCancelAt?: Date | null;
+  subscriptionCanceledAt?: Date | null;
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
   stripeCheckoutSessionId?: string | null;
@@ -49,6 +54,11 @@ export const applyPlanChange = async (tenantId: string, planCode: string, option
     billingNotes: options.billingNotes ?? tenant.billingNotes,
     ...(options.nextBillingDate || options.billingStartDate || resetUsage ? { nextBillingDate: computedNextBillingDate } : {}),
     paymentStatus: options.paymentStatus ?? (options.activate ? 'active_paid' : tenant.paymentStatus),
+    billingInterval: options.billingInterval ?? tenant.billingInterval,
+    subscriptionPeriodStart: options.subscriptionPeriodStart ?? tenant.subscriptionPeriodStart,
+    subscriptionPeriodEnd: options.subscriptionPeriodEnd ?? tenant.subscriptionPeriodEnd,
+    subscriptionCancelAt: options.subscriptionCancelAt ?? tenant.subscriptionCancelAt,
+    subscriptionCanceledAt: options.subscriptionCanceledAt ?? tenant.subscriptionCanceledAt,
     stripeCustomerId: options.stripeCustomerId,
     stripeSubscriptionId: options.stripeSubscriptionId,
     stripeCheckoutSessionId: options.stripeCheckoutSessionId,

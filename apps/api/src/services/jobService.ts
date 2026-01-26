@@ -1,10 +1,8 @@
 import axios from 'axios';
 import { JobStatus, Prisma } from '@prisma/client';
 import crypto from 'crypto';
-import dns from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
-import net from 'node:net';
 import { Transform, type Readable } from 'node:stream';
 import { prisma } from '../lib/prisma';
 import { uploadBuffer, uploadStream, generateAssetKey } from '../lib/s3';
@@ -14,6 +12,8 @@ import { triggerWorkflow } from './n8n';
 import { env } from '../config/env';
 import { TenantWithPlan, reserveTenantQuota, releaseReservedTenantQuota } from './quota';
 import { decrypt } from '../lib/crypto';
+import { resolveSafeExternalTarget, UnsafeExternalUrlError } from '../utils/safeUrl';
+export { UnsafeExternalUrlError } from '../utils/safeUrl';
 
 const MAX_TENANT_JOBS = 20;
 const MAX_EXTERNAL_OUTPUT_BYTES = 250 * 1024 * 1024;
@@ -21,20 +21,14 @@ const OUTPUT_HOST_ALLOWLIST = (env.outputDownloadHostAllowlist ?? '')
   .split(',')
   .map((entry) => entry.trim().toLowerCase().replace(/\.$/, ''))
   .filter(Boolean);
-
-const isAllowedOutputHostname = (hostname: string) => {
-  if (OUTPUT_HOST_ALLOWLIST.length === 0) return true;
-  const normalized = hostname.trim().toLowerCase().replace(/\.$/, '');
-  for (const pattern of OUTPUT_HOST_ALLOWLIST) {
-    if (pattern.startsWith('*.')) {
-      const suffix = pattern.slice(2);
-      if (normalized === suffix || normalized.endsWith(`.${suffix}`)) return true;
-      continue;
-    }
-    if (normalized === pattern) return true;
-  }
-  return false;
-};
+const N8N_HOST_ALLOWLIST = (env.n8nHostAllowlist ?? '')
+  .split(',')
+  .map((entry) => entry.trim().toLowerCase().replace(/\.$/, ''))
+  .filter(Boolean);
+const N8N_TRUSTED_HOST_ALLOWLIST = (env.n8nTrustedHostAllowlist ?? '')
+  .split(',')
+  .map((entry) => entry.trim().toLowerCase().replace(/\.$/, ''))
+  .filter(Boolean);
 
 export class WorkflowConfigurationError extends Error {
   code = 'workflow_not_configured';
@@ -65,121 +59,11 @@ type StoredVideoJobOptions = VideoJobOptions & {
   };
 };
 
-export class UnsafeExternalUrlError extends Error {
-  code = 'unsafe_external_url';
-}
-
 export class ExternalAssetTooLargeError extends Error {
   code = 'external_asset_too_large';
 }
 
 const hashCallbackToken = (token: Buffer) => crypto.createHash('sha256').update(token).digest('hex');
-
-const isPrivateIpv4 = (ip: string) => {
-  const parts = ip.split('.').map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
-  const [a, b] = parts;
-
-  if (a === 0) return true; // "this host on this network"
-  if (a === 10) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-  if (a === 127) return true; // loopback
-  if (a === 169 && b === 254) return true; // link-local
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking
-  if (a >= 224) return true; // multicast + reserved
-
-  return false;
-};
-
-const isPrivateIp = (ip: string) => {
-  const family = net.isIP(ip);
-  if (family === 4) return isPrivateIpv4(ip);
-  if (family !== 6) return true;
-
-  const normalized = ip.toLowerCase();
-  if (normalized === '::' || normalized === '::1') return true;
-
-  if (normalized.startsWith('::ffff:')) {
-    const maybeIpv4 = normalized.slice('::ffff:'.length);
-    if (net.isIP(maybeIpv4) === 4) return isPrivateIpv4(maybeIpv4);
-  }
-
-  const firstHextet = normalized.split(':')[0] ?? '';
-  if (firstHextet.startsWith('fc') || firstHextet.startsWith('fd')) return true; // fc00::/7
-
-  const firstFour = normalized.replace(':', '').slice(0, 4);
-  if (firstFour.startsWith('fe8') || firstFour.startsWith('fe9') || firstFour.startsWith('fea') || firstFour.startsWith('feb')) {
-    return true; // fe80::/10
-  }
-
-  if (normalized.startsWith('2001:db8:')) return true; // documentation
-
-  return false;
-};
-
-type SafeExternalTarget = {
-  url: URL;
-  address: string;
-  family: 4 | 6;
-};
-
-const resolveSafeExternalTarget = async (rawUrl: string): Promise<SafeExternalTarget> => {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch (_err) {
-    throw new UnsafeExternalUrlError('Invalid output URL');
-  }
-
-  if (parsed.protocol !== 'https:' && (env.isProd || parsed.protocol !== 'http:')) {
-    throw new UnsafeExternalUrlError('Output URL must use http(s)');
-  }
-
-  if (parsed.username || parsed.password) {
-    throw new UnsafeExternalUrlError('Output URL must not contain credentials');
-  }
-
-  if (env.isProd && parsed.port && parsed.port !== '443' && parsed.port !== '80') {
-    throw new UnsafeExternalUrlError('Output URL port is not allowed');
-  }
-
-  const hostname = parsed.hostname.toLowerCase();
-  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) {
-    throw new UnsafeExternalUrlError('Output URL hostname is not allowed');
-  }
-  if (!isAllowedOutputHostname(hostname)) {
-    throw new UnsafeExternalUrlError('Output URL hostname is not allowed');
-  }
-
-  if (net.isIP(hostname)) {
-    if (isPrivateIp(hostname)) {
-      throw new UnsafeExternalUrlError('Output URL must resolve to a public address');
-    }
-    return { url: parsed, address: hostname, family: net.isIP(hostname) as 4 | 6 };
-  }
-
-  let resolved;
-  try {
-    resolved = await dns.lookup(hostname, { all: true, verbatim: true });
-  } catch (_err) {
-    throw new UnsafeExternalUrlError('Failed to resolve output URL');
-  }
-
-  if (resolved.length === 0) {
-    throw new UnsafeExternalUrlError('Output URL did not resolve');
-  }
-
-  for (const record of resolved) {
-    if (isPrivateIp(record.address)) {
-      throw new UnsafeExternalUrlError('Output URL must resolve to a public address');
-    }
-  }
-
-  const selected = resolved[0]!;
-  return { url: parsed, address: selected.address, family: selected.family as 4 | 6 };
-};
 
 const normalizeWorkflowOutputs = (value: unknown): ExternalOutput[] | null => {
   if (!Array.isArray(value)) return null;
@@ -270,6 +154,33 @@ export const createJob = async (params: {
   }
   const n8nBaseUrl = params.tenant.n8nBaseUrl!;
   const n8nProcessPath = params.tenant.n8nProcessPath!;
+  if (!n8nProcessPath.startsWith('/')) {
+    throw new WorkflowConfigurationError('n8n process path must start with "/"');
+  }
+  const resolvedN8nUrl = new URL(n8nProcessPath, n8nBaseUrl).toString();
+  let n8nTarget;
+  try {
+    n8nTarget = await resolveSafeExternalTarget(resolvedN8nUrl, {
+      allowHttp: !env.isProd,
+      allowedHostnames: N8N_HOST_ALLOWLIST,
+      isProd: env.isProd,
+    });
+  } catch (err: any) {
+    throw new WorkflowConfigurationError(err?.message ?? 'Invalid n8n URL');
+  }
+  const allowCloudinarySecrets = (() => {
+    if (!env.useCloudinary) return false;
+    if (N8N_TRUSTED_HOST_ALLOWLIST.length === 0) return false;
+    return N8N_TRUSTED_HOST_ALLOWLIST.some((pattern) => {
+      const normalized = pattern.trim().toLowerCase().replace(/\.$/, '');
+      const hostname = n8nTarget.url.hostname.trim().toLowerCase().replace(/\.$/, '');
+      if (normalized.startsWith('*.')) {
+        const suffix = normalized.slice(2);
+        return hostname === suffix || hostname.endsWith(`.${suffix}`);
+      }
+      return hostname === normalized;
+    });
+  })();
   validateUpload(params.file);
 
   const sanitized = await sanitizeImage(params.file);
@@ -324,8 +235,17 @@ export const createJob = async (params: {
       apiKeys.map((key) => [key.provider, decrypt(key.keyEncrypted)] as const),
     );
 
-    const n8nUrl = `${n8nBaseUrl}${n8nProcessPath}`;
-    const result = await triggerWorkflow(n8nUrl, {
+    const lookup = (
+      _hostname: string,
+      _opts: any,
+      cb: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
+    ) => {
+      cb(null, n8nTarget.address, n8nTarget.family);
+    };
+    const httpAgent = new http.Agent({ keepAlive: false, lookup });
+    const httpsAgent = new https.Agent({ keepAlive: false, lookup });
+
+    const result = await triggerWorkflow(n8nTarget.url.toString(), {
       file: sanitized.buffer,
       fileName: params.file.originalname,
       mimeType: params.file.mimetype,
@@ -351,7 +271,8 @@ export const createJob = async (params: {
       composition: {
         useCloudinary: env.useCloudinary,
         composeServiceUrl: env.COMPOSE_SERVICE_URL,
-        cloudinary: env.useCloudinary
+        composeInternalToken: env.composeInternalToken,
+        cloudinary: allowCloudinarySecrets
           ? {
               cloudName: env.CLOUDINARY_CLOUD_NAME ?? '',
               apiKey: env.CLOUDINARY_API_KEY ?? '',
@@ -359,7 +280,7 @@ export const createJob = async (params: {
             }
           : undefined,
       },
-    });
+    }, { httpAgent, httpsAgent });
 
     if (result.immediateOutputs) {
       const outputs = normalizeWorkflowOutputs(result.immediateOutputs);
@@ -382,7 +303,7 @@ export const createJob = async (params: {
       let storedOutputs;
       try {
         storedOutputs = await persistOutputsToStorage(params.tenant.id, job.id, outputs);
-      } catch (err) {
+      } catch (err: any) {
         console.error('[n8n-sync] failed to persist outputs', err);
         if (err instanceof UnsafeExternalUrlError || err instanceof ExternalAssetTooLargeError) {
           await markJobError(job.id, params.tenant.id, err.message || 'Invalid output URL');
@@ -486,7 +407,11 @@ type DownloadedExternalAsset = {
 };
 
 const downloadExternalAsset = async (url: string): Promise<DownloadedExternalAsset> => {
-  const target = await resolveSafeExternalTarget(url);
+  const target = await resolveSafeExternalTarget(url, {
+    allowHttp: !env.isProd,
+    allowedHostnames: OUTPUT_HOST_ALLOWLIST,
+    isProd: env.isProd,
+  });
   const lookup = (
     _hostname: string,
     _opts: any,

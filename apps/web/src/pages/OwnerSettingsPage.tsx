@@ -16,7 +16,16 @@ type SystemConfigResponse = {
   stripePriceIdStarter: string | null;
   stripePriceIdGrowth: string | null;
   stripePriceIdScale: string | null;
+  stripePriceIdStarterAnnual: string | null;
+  stripePriceIdGrowthAnnual: string | null;
+  stripePriceIdScaleAnnual: string | null;
   sandboxTenantId: string | null;
+  customHeadCode: string | null;
+  customBodyStart: string | null;
+  customBodyEnd: string | null;
+  googleOAuthClientId: string | null;
+  googleOAuthClientSecretSet: boolean;
+  googleOAuthRedirectUri?: string | null;
   updatedAt?: string;
 };
 
@@ -86,8 +95,17 @@ const OwnerSettingsPage = () => {
   const [stripePriceIdStarter, setStripePriceIdStarter] = useState('');
   const [stripePriceIdGrowth, setStripePriceIdGrowth] = useState('');
   const [stripePriceIdScale, setStripePriceIdScale] = useState('');
+  const [stripePriceIdStarterAnnual, setStripePriceIdStarterAnnual] = useState('');
+  const [stripePriceIdGrowthAnnual, setStripePriceIdGrowthAnnual] = useState('');
+  const [stripePriceIdScaleAnnual, setStripePriceIdScaleAnnual] = useState('');
 
   const [sandboxTenantId, setSandboxTenantId] = useState<string>('');
+
+  const [customHeadCode, setCustomHeadCode] = useState('');
+  const [customBodyStart, setCustomBodyStart] = useState('');
+  const [customBodyEnd, setCustomBodyEnd] = useState('');
+  const [googleOAuthClientId, setGoogleOAuthClientId] = useState('');
+  const [googleOAuthClientSecret, setGoogleOAuthClientSecret] = useState('');
 
   // API Keys state
   const [apiKeyProvider, setApiKeyProvider] = useState('');
@@ -134,7 +152,14 @@ const OwnerSettingsPage = () => {
     setStripePriceIdStarter(cfg.stripePriceIdStarter ?? '');
     setStripePriceIdGrowth(cfg.stripePriceIdGrowth ?? '');
     setStripePriceIdScale(cfg.stripePriceIdScale ?? '');
+    setStripePriceIdStarterAnnual(cfg.stripePriceIdStarterAnnual ?? '');
+    setStripePriceIdGrowthAnnual(cfg.stripePriceIdGrowthAnnual ?? '');
+    setStripePriceIdScaleAnnual(cfg.stripePriceIdScaleAnnual ?? '');
     setSandboxTenantId(cfg.sandboxTenantId ?? '');
+    setCustomHeadCode(cfg.customHeadCode ?? '');
+    setCustomBodyStart(cfg.customBodyStart ?? '');
+    setCustomBodyEnd(cfg.customBodyEnd ?? '');
+    setGoogleOAuthClientId(cfg.googleOAuthClientId ?? '');
   }, [configQuery.data]);
 
   useEffect(() => {
@@ -163,12 +188,20 @@ const OwnerSettingsPage = () => {
         stripePriceIdStarter: normalizeNullable(stripePriceIdStarter),
         stripePriceIdGrowth: normalizeNullable(stripePriceIdGrowth),
         stripePriceIdScale: normalizeNullable(stripePriceIdScale),
+        stripePriceIdStarterAnnual: normalizeNullable(stripePriceIdStarterAnnual),
+        stripePriceIdGrowthAnnual: normalizeNullable(stripePriceIdGrowthAnnual),
+        stripePriceIdScaleAnnual: normalizeNullable(stripePriceIdScaleAnnual),
         sandboxTenantId: normalizeNullable(sandboxTenantId),
+        customHeadCode: normalizeNullable(customHeadCode),
+        customBodyStart: normalizeNullable(customBodyStart),
+        customBodyEnd: normalizeNullable(customBodyEnd),
+        googleOAuthClientId: normalizeNullable(googleOAuthClientId),
       };
 
       if (smtpPass.trim().length > 0) payload.smtpPass = smtpPass;
       if (stripeSecretKey.trim().length > 0) payload.stripeSecretKey = stripeSecretKey;
       if (stripeWebhookSecret.trim().length > 0) payload.stripeWebhookSecret = stripeWebhookSecret;
+      if (googleOAuthClientSecret.trim().length > 0) payload.googleOAuthClientSecret = googleOAuthClientSecret;
 
       const { data } = await api.put('/owner/system-config', payload);
       return data as SystemConfigResponse;
@@ -178,6 +211,7 @@ const OwnerSettingsPage = () => {
       setSmtpPass('');
       setStripeSecretKey('');
       setStripeWebhookSecret('');
+      setGoogleOAuthClientSecret('');
       queryClient.invalidateQueries({ queryKey: ['ownerSystemConfig'] });
       queryClient.invalidateQueries({ queryKey: ['ownerTenants'] });
     },
@@ -193,6 +227,9 @@ const OwnerSettingsPage = () => {
       setStripePriceIdStarter(cfg.stripePriceIdStarter ?? '');
       setStripePriceIdGrowth(cfg.stripePriceIdGrowth ?? '');
       setStripePriceIdScale(cfg.stripePriceIdScale ?? '');
+      setStripePriceIdStarterAnnual(cfg.stripePriceIdStarterAnnual ?? '');
+      setStripePriceIdGrowthAnnual(cfg.stripePriceIdGrowthAnnual ?? '');
+      setStripePriceIdScaleAnnual(cfg.stripePriceIdScaleAnnual ?? '');
       queryClient.invalidateQueries({ queryKey: ['ownerSystemConfig'] });
     },
     onError: (err: any) => {
@@ -450,6 +487,36 @@ const OwnerSettingsPage = () => {
               </label>
             </div>
 
+            <div className="grid gap-4 md:grid-cols-3">
+              <label className="text-sm text-slate-200">
+                Starter annual price ID
+                <input
+                  value={stripePriceIdStarterAnnual}
+                  onChange={(e) => setStripePriceIdStarterAnnual(e.target.value)}
+                  placeholder="price_..."
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+              </label>
+              <label className="text-sm text-slate-200">
+                Growth annual price ID
+                <input
+                  value={stripePriceIdGrowthAnnual}
+                  onChange={(e) => setStripePriceIdGrowthAnnual(e.target.value)}
+                  placeholder="price_..."
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+              </label>
+              <label className="text-sm text-slate-200">
+                Scale annual price ID
+                <input
+                  value={stripePriceIdScaleAnnual}
+                  onChange={(e) => setStripePriceIdScaleAnnual(e.target.value)}
+                  placeholder="price_..."
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+              </label>
+            </div>
+
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -457,12 +524,91 @@ const OwnerSettingsPage = () => {
                 disabled={bootstrapStripeMutation.isPending}
                 className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-50"
               >
-                {bootstrapStripeMutation.isPending ? 'Creating prices…' : 'Auto-create monthly prices'}
+                {bootstrapStripeMutation.isPending ? 'Creating prices…' : 'Auto-create prices'}
               </button>
               <p className="text-xs text-slate-400">
-                Creates starter/growth/scale monthly prices in Stripe (test mode) and fills the IDs above.
+                Creates starter/growth/scale monthly and annual prices in Stripe (test mode) and fills the IDs above.
               </p>
             </div>
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="rounded-3xl border border-white/5 bg-slate-900/70 p-6 backdrop-blur">
+          <h2 className="text-xl font-semibold text-white">Google OAuth</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Enable one-click Google login for users. Store the client ID and secret here.
+          </p>
+
+          <div className="mt-6 grid gap-4">
+            <label className="text-sm text-slate-200">
+              Client ID
+              <input
+                value={googleOAuthClientId}
+                onChange={(e) => setGoogleOAuthClientId(e.target.value)}
+                placeholder="1234567890-abc.apps.googleusercontent.com"
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </label>
+            <label className="text-sm text-slate-200">
+              Client secret {configQuery.data?.googleOAuthClientSecretSet ? <span className="text-xs text-emerald-400">(saved)</span> : null}
+              <input
+                value={googleOAuthClientSecret}
+                onChange={(e) => setGoogleOAuthClientSecret(e.target.value)}
+                placeholder={configQuery.data?.googleOAuthClientSecretSet ? '•••••••• (leave blank to keep)' : '••••••••'}
+                type="password"
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </label>
+            <label className="text-sm text-slate-200">
+              Redirect URI
+              <input
+                value={configQuery.data?.googleOAuthRedirectUri ?? ''}
+                readOnly
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-slate-400"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-white/5 bg-slate-900/70 p-6 backdrop-blur">
+          <h2 className="text-xl font-semibold text-white">Code Injection</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Inject trusted scripts (analytics, chat widgets, pixels). Only paste code you trust.
+          </p>
+
+          <div className="mt-6 grid gap-4">
+            <label className="text-sm text-slate-200">
+              Head code
+              <textarea
+                value={customHeadCode}
+                onChange={(e) => setCustomHeadCode(e.target.value)}
+                placeholder="<script>/* analytics */</script>"
+                rows={4}
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </label>
+            <label className="text-sm text-slate-200">
+              Body start
+              <textarea
+                value={customBodyStart}
+                onChange={(e) => setCustomBodyStart(e.target.value)}
+                placeholder="<!-- chat widget -->"
+                rows={4}
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </label>
+            <label className="text-sm text-slate-200">
+              Body end
+              <textarea
+                value={customBodyEnd}
+                onChange={(e) => setCustomBodyEnd(e.target.value)}
+                placeholder="<!-- tracking pixels -->"
+                rows={4}
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </label>
           </div>
         </section>
       </div>

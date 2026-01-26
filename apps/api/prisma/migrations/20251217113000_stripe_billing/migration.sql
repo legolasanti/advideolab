@@ -1,5 +1,4 @@
 -- Stripe billing + B2B billing fields
-BEGIN;
 
 DO $$
 BEGIN
@@ -33,8 +32,28 @@ BEGIN
 END
 $$;
 
-ALTER TABLE "Coupon"
-  ADD COLUMN IF NOT EXISTS "stripeCouponId" TEXT;
+-- Create Coupon table if not exists
+CREATE TABLE IF NOT EXISTS "Coupon" (
+  "id" TEXT NOT NULL,
+  "code" TEXT NOT NULL,
+  "type" TEXT NOT NULL,
+  "value" INTEGER NOT NULL,
+  "expiresAt" TIMESTAMP(3),
+  "isActive" BOOLEAN NOT NULL DEFAULT true,
+  "maxUses" INTEGER,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "usedCount" INTEGER NOT NULL DEFAULT 0,
+  "stripeCouponId" TEXT,
+  CONSTRAINT "Coupon_pkey" PRIMARY KEY ("id")
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'Coupon_code_key') THEN
+    CREATE UNIQUE INDEX "Coupon_code_key" ON "Coupon"("code");
+  END IF;
+END
+$$;
 
 DO $$
 BEGIN
@@ -44,5 +63,15 @@ BEGIN
 END
 $$;
 
-COMMIT;
+-- Add stripeCouponId to existing Coupon table if it exists but column doesn't
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'Coupon' AND column_name = 'stripeCouponId'
+  ) THEN
+    ALTER TABLE "Coupon" ADD COLUMN "stripeCouponId" TEXT;
+  END IF;
+END
+$$;
 

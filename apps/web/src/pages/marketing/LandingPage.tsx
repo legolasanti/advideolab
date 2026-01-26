@@ -1,40 +1,122 @@
+import type { JSX, ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import Seo from '../../components/Seo';
 import { getSiteUrl } from '../../lib/urls';
-import { useCmsSection } from '../../hooks/useCmsSection';
-import { showcaseExamples } from '../../content/marketing';
+import { PLAN_DEFINITIONS } from '../../lib/plans';
+import api from '../../lib/api';
+import {
+  heroContent as defaultHeroContent,
+  testimonials as defaultTestimonials,
+  howItWorks as defaultHowItWorks,
+} from '../../content/marketing';
 
-const baseCard =
-  'rounded-3xl border border-white/10 bg-slate-900/50 backdrop-blur';
+// ============================================================================
+// Style Constants
+// ============================================================================
+const sectionSpacing = 'mx-auto max-w-7xl px-6 py-24';
+const baseCard = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
+const primaryButton =
+  'inline-flex items-center justify-center gap-2 rounded-full bg-[#2e90fa] px-6 py-3 text-sm font-semibold text-white shadow-md shadow-blue-500/20 transition hover:bg-[#1a7ae8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400';
+const secondaryButton =
+  'inline-flex items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:border-slate-400';
 
-const IconUpload = () => (
-  <svg
-    className="h-5 w-5 text-emerald-300"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
+// ============================================================================
+// Types
+// ============================================================================
+type IconProps = {
+  className?: string;
+};
+
+type FaqItem = {
+  question: string;
+  answer: string;
+};
+
+type StatItem = {
+  value: string;
+  label: string;
+  description: string;
+  gradient: string;
+};
+
+type StepItem = {
+  title: string;
+  description: string;
+  icon: JSX.Element;
+};
+
+type FeatureItem = {
+  title: string;
+  description: string;
+  icon: JSX.Element;
+};
+
+type ShowcaseVideo = {
+  id: string;
+  title?: string | null;
+  videoUrl: string;
+  thumbnailUrl?: string | null;
+  sortOrder: number;
+  isActive: boolean;
+};
+
+type CmsHeroContent = {
+  headline: string;
+  subheadline: string;
+  primaryCtaLabel: string;
+  secondaryCtaLabel: string;
+  videoUrl?: string;
+  videoPoster?: string;
+};
+
+type CmsTestimonial = {
+  name: string;
+  role: string;
+  quote: string;
+  avatarUrl?: string;
+};
+
+type CmsHowItWorksItem = {
+  title: string;
+  description: string;
+  step: string;
+  imageUrl?: string;
+};
+
+// ============================================================================
+// Icon Components
+// ============================================================================
+const IconCheck = ({ className = 'h-5 w-5 text-[#2e90fa]' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
+
+const IconArrowRight = ({ className = 'h-4 w-4' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 12h14" />
+    <path d="m12 5 7 7-7 7" />
+  </svg>
+);
+
+const IconChevronDown = ({ className = 'h-5 w-5' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
+
+const IconUpload = ({ className = 'h-6 w-6 text-[#2e90fa]' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
     <polyline points="17 8 12 3 7 8" />
     <line x1="12" y1="3" x2="12" y2="15" />
   </svg>
 );
 
-const IconSliders = () => (
-  <svg
-    className="h-5 w-5 text-emerald-300"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
+const IconSliders = ({ className = 'h-6 w-6 text-[#2e90fa]' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <line x1="4" y1="21" x2="4" y2="14" />
     <line x1="4" y1="10" x2="4" y2="3" />
     <line x1="12" y1="21" x2="12" y2="12" />
@@ -47,396 +129,859 @@ const IconSliders = () => (
   </svg>
 );
 
-const IconSparkles = () => (
-  <svg
-    className="h-5 w-5 text-emerald-300"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
+const IconSparkles = ({ className = 'h-6 w-6 text-[#2e90fa]' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
     <path d="M19 3l.7 2.1L22 6l-2.3.9L19 9l-.7-2.1L16 6l2.3-.9L19 3z" />
   </svg>
 );
 
-const Check = () => (
-  <svg
-    className="h-4 w-4 text-emerald-300"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M20 6 9 17l-5-5" />
+const IconPlay = ({ className = 'h-6 w-6' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M8 5v14l11-7z" />
   </svg>
 );
 
-type ShowcaseVideo = {
-  title: string;
-  description: string;
-  videoUrl?: string;
-};
+const IconGlobe = ({ className = 'h-6 w-6 text-[#2e90fa]' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M2 12h20" />
+    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+  </svg>
+);
 
-const LandingPage = () => {
-  const { data: showcaseCms } = useCmsSection('showcase', { videos: showcaseExamples });
-  const cmsVideos = Array.isArray(showcaseCms.videos) ? (showcaseCms.videos as ShowcaseVideo[]) : null;
-  const videos = cmsVideos && cmsVideos.length > 0 ? cmsVideos : showcaseExamples;
+const IconLayers = ({ className = 'h-6 w-6 text-[#2e90fa]' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="12 2 2 7 12 12 22 7 12 2" />
+    <polyline points="2 17 12 22 22 17" />
+    <polyline points="2 12 12 17 22 12" />
+  </svg>
+);
 
-  const examples: Array<ShowcaseVideo & { key: string }> = videos
-    .filter((item) => Boolean(item.videoUrl?.trim()))
-    .slice(0, 6)
-    .map((item) => ({ ...item, key: item.title }));
+const IconZap = ({ className = 'h-6 w-6 text-[#2e90fa]' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
 
-  while (examples.length < 6) {
-    const index = examples.length + 1;
-    examples.push({ key: `placeholder-${index}`, title: `Example #${index}`, description: 'Placeholder' });
-  }
+const IconShield = ({ className = 'h-6 w-6 text-[#2e90fa]' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l7 4v5c0 5-3.5 9-7 11-3.5-2-7-6-7-11V7l7-4z" />
+  </svg>
+);
+
+const IconVolume = ({ className = 'h-5 w-5' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+  </svg>
+);
+
+const IconVolumeOff = ({ className = 'h-5 w-5' }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <line x1="23" y1="9" x2="17" y2="15" />
+    <line x1="17" y1="9" x2="23" y2="15" />
+  </svg>
+);
+
+// ============================================================================
+// Data
+// ============================================================================
+const typingWords = ['TikTok', 'Instagram Reels', 'YouTube Shorts', 'Social Ads'];
+
+const logos = ['TikTok', 'Meta', 'YouTube', 'Shopify', 'Amazon', 'Stripe'];
+
+const stats: StatItem[] = [
+  { value: '20+', label: 'Languages', description: 'Localized scripts and voices', gradient: 'from-blue-500 to-cyan-400' },
+  { value: '3', label: 'Platforms', description: 'TikTok, Reels, Shorts ready', gradient: 'from-purple-500 to-pink-500' },
+  { value: '5+', label: 'Variations', description: 'Per generation run', gradient: 'from-green-500 to-emerald-400' },
+];
+
+const howItWorks: StepItem[] = [
+  {
+    title: 'Upload a product image',
+    description: 'Drag and drop one photo of your product. Our AI analyzes the image to understand what you are selling.',
+    icon: <IconUpload />,
+  },
+  {
+    title: 'Set voice and vibe',
+    description: 'Choose language, platform format, voice profile, tone, and call-to-action. Control every creative lever.',
+    icon: <IconSliders />,
+  },
+  {
+    title: 'Generate and download',
+    description: 'Render multiple UGC variations optimized for each platform. Download MP4s ready to publish.',
+    icon: <IconSparkles />,
+  },
+];
+
+const features: FeatureItem[] = [
+  {
+    title: 'Multi-language support',
+    description: 'Generate UGC in 20+ languages with native-sounding voices and localized scripts.',
+    icon: <IconGlobe />,
+  },
+  {
+    title: 'Platform optimization',
+    description: 'Automatic formatting for TikTok, Instagram Reels, and YouTube Shorts specifications.',
+    icon: <IconLayers />,
+  },
+  {
+    title: 'Fast generation',
+    description: 'From upload to download in minutes. No waiting for creators or editing timelines.',
+    icon: <IconZap />,
+  },
+  {
+    title: 'Commercial rights',
+    description: 'Full commercial usage rights included. Your content, your campaigns, no restrictions.',
+    icon: <IconShield />,
+  },
+];
+
+const faqs: FaqItem[] = [
+  { question: 'What do I need to start?', answer: 'Just one product image. Upload a photo and our AI handles the rest—script writing, voice generation, and video creation.' },
+  { question: 'How long does generation take?', answer: 'Most videos are ready in 2-5 minutes depending on length and current queue. Batch generations may take slightly longer.' },
+  { question: 'Can I control the script and CTA?', answer: 'Yes. You can provide custom prompts, select from different tones and vibes, and specify your exact call-to-action.' },
+  { question: 'Which platforms are supported?', answer: 'We optimize for TikTok, Instagram Reels, and YouTube Shorts with proper aspect ratios and durations for each.' },
+  { question: 'Do you support multiple languages?', answer: 'Yes, we support 20+ languages including English (US/UK), Spanish, French, German, Portuguese, and many more.' },
+  { question: 'What about commercial usage rights?', answer: 'All generated content includes full commercial rights. Use it for ads, organic posts, or any marketing purpose.' },
+];
+
+const pricingPlans = [
+  { ...PLAN_DEFINITIONS.starter, popular: false },
+  { ...PLAN_DEFINITIONS.growth, popular: true },
+  { ...PLAN_DEFINITIONS.scale, popular: false },
+];
+
+// ============================================================================
+// Subcomponents
+// ============================================================================
+const TypingAnimation = () => {
+  const [index, setIndex] = useState(0);
+  const [displayed, setDisplayed] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    const word = typingWords[index];
+    const timeout = setTimeout(
+      () => {
+        if (!isDeleting) {
+          setDisplayed(word.slice(0, displayed.length + 1));
+          if (displayed.length === word.length) {
+            setTimeout(() => setIsDeleting(true), 1500);
+          }
+        } else {
+          setDisplayed(word.slice(0, displayed.length - 1));
+          if (displayed.length === 0) {
+            setIsDeleting(false);
+            setIndex((prev) => (prev + 1) % typingWords.length);
+          }
+        }
+      },
+      isDeleting ? 50 : 100
+    );
+    return () => clearTimeout(timeout);
+  }, [displayed, isDeleting, index]);
 
   return (
-    <div className="pb-20">
+    <span className="text-[#2e90fa]">
+      {displayed}
+      <span className="animate-pulse">|</span>
+    </span>
+  );
+};
+
+const PillBadge = ({ children, variant = 'blue' }: { children: ReactNode; variant?: 'blue' | 'purple' | 'green' }) => {
+  const variants = {
+    blue: 'bg-blue-50 text-blue-700 border-blue-200',
+    purple: 'bg-purple-50 text-purple-700 border-purple-200',
+    green: 'bg-green-50 text-green-700 border-green-200',
+  };
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${variants[variant]}`}>
+      {children}
+    </span>
+  );
+};
+
+const StatCard = ({ value, label, description, gradient }: StatItem) => (
+  <div className={`${baseCard} p-8 text-center`}>
+    <p className={`text-5xl font-bold bg-gradient-to-r ${gradient} bg-clip-text text-transparent`}>{value}</p>
+    <p className="mt-2 text-lg font-semibold text-slate-900">{label}</p>
+    <p className="mt-1 text-sm text-slate-500">{description}</p>
+  </div>
+);
+
+const FaqAccordion = ({ items }: { items: FaqItem[] }) => {
+  const [open, setOpen] = useState<number | null>(null);
+
+  return (
+    <div className="divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white">
+      {items.map((item, idx) => (
+        <div key={item.question}>
+          <button
+            onClick={() => setOpen(open === idx ? null : idx)}
+            className="flex w-full items-center justify-between px-6 py-5 text-left transition hover:bg-slate-50"
+          >
+            <span className="font-semibold text-slate-900">{item.question}</span>
+            <IconChevronDown
+              className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${open === idx ? 'rotate-180' : ''}`}
+            />
+          </button>
+          <div
+            className={`overflow-hidden transition-all duration-200 ${
+              open === idx ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+            }`}
+          >
+            <div className="px-6 pb-5 text-slate-600">{item.answer}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const VideoCarousel = () => {
+  const [videos, setVideos] = useState<ShowcaseVideo[]>([]);
+  const [mutedState, setMutedState] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+
+  useEffect(() => {
+    const fetchVideos = async () => {
+      try {
+        const res = await api.get('/public/showcase-videos');
+        const data = res.data as ShowcaseVideo[];
+        setVideos(data);
+        // Initialize all videos as muted
+        const initialMuted: Record<string, boolean> = {};
+        data.forEach((v) => {
+          initialMuted[v.id] = true;
+        });
+        setMutedState(initialMuted);
+      } catch (err) {
+        console.error('Failed to fetch showcase videos:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchVideos();
+  }, []);
+
+  // Auto-scroll animation
+  useEffect(() => {
+    if (!scrollRef.current || videos.length === 0) return;
+    const container = scrollRef.current;
+    let animationId: number;
+    let scrollPosition = 0;
+    const scrollSpeed = 0.5; // pixels per frame
+
+    const animate = () => {
+      scrollPosition += scrollSpeed;
+      const maxScroll = container.scrollWidth - container.clientWidth;
+      if (scrollPosition >= maxScroll) {
+        scrollPosition = 0;
+      }
+      container.scrollLeft = scrollPosition;
+      animationId = requestAnimationFrame(animate);
+    };
+
+    animationId = requestAnimationFrame(animate);
+
+    // Pause on hover
+    const handleMouseEnter = () => cancelAnimationFrame(animationId);
+    const handleMouseLeave = () => {
+      scrollPosition = container.scrollLeft;
+      animationId = requestAnimationFrame(animate);
+    };
+
+    container.addEventListener('mouseenter', handleMouseEnter);
+    container.addEventListener('mouseleave', handleMouseLeave);
+
+    return () => {
+      cancelAnimationFrame(animationId);
+      container.removeEventListener('mouseenter', handleMouseEnter);
+      container.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, [videos]);
+
+  const toggleMute = useCallback((videoId: string) => {
+    setMutedState((prev) => {
+      const newState = { ...prev };
+      // Mute all other videos first
+      Object.keys(newState).forEach((id) => {
+        if (id !== videoId) {
+          newState[id] = true;
+          if (videoRefs.current[id]) {
+            videoRefs.current[id]!.muted = true;
+          }
+        }
+      });
+      // Toggle the clicked video
+      newState[videoId] = !prev[videoId];
+      if (videoRefs.current[videoId]) {
+        videoRefs.current[videoId]!.muted = newState[videoId];
+      }
+      return newState;
+    });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="py-12">
+        <div className="flex justify-center items-center gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="w-48 h-80 rounded-2xl bg-slate-200 animate-pulse flex-shrink-0"
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (videos.length === 0) {
+    return null;
+  }
+
+  // Duplicate videos for seamless loop effect
+  const displayVideos = [...videos, ...videos];
+
+  return (
+    <div className="py-12 overflow-hidden">
+      <div
+        ref={scrollRef}
+        className="flex gap-4 overflow-x-hidden px-6"
+        style={{ scrollBehavior: 'auto' }}
+      >
+        {displayVideos.map((video, idx) => (
+          <div
+            key={`${video.id}-${idx}`}
+            className="relative flex-shrink-0 w-48 md:w-56 aspect-[9/16] rounded-2xl overflow-hidden bg-slate-900 shadow-lg group"
+          >
+            <video
+              ref={(el) => {
+                if (idx < videos.length) {
+                  videoRefs.current[video.id] = el;
+                }
+              }}
+              src={video.videoUrl}
+              poster={video.thumbnailUrl ?? undefined}
+              loop
+              muted
+              autoPlay
+              playsInline
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            {/* Sound toggle button */}
+            <button
+              onClick={() => toggleMute(video.id)}
+              className="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+              aria-label={mutedState[video.id] ? 'Unmute video' : 'Mute video'}
+            >
+              {mutedState[video.id] ? (
+                <IconVolumeOff className="h-4 w-4" />
+              ) : (
+                <IconVolume className="h-4 w-4" />
+              )}
+            </button>
+            {/* Optional title overlay */}
+            {video.title && (
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-8">
+                <p className="text-xs font-medium text-white truncate">{video.title}</p>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// Testimonial Carousel Component
+// ============================================================================
+const TestimonialCarousel = ({ testimonials }: { testimonials: CmsTestimonial[] }) => {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    if (testimonials.length <= 1) return;
+    const interval = setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % testimonials.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [testimonials.length]);
+
+  if (testimonials.length === 0) return null;
+
+  return (
+    <div className="max-w-3xl mx-auto text-center">
+      <div className={`${baseCard} p-10 relative overflow-hidden`}>
+        {/* Stars */}
+        <div className="flex justify-center gap-1 mb-6">
+          {[1, 2, 3, 4, 5].map((star) => (
+            <svg key={star} className="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+            </svg>
+          ))}
+        </div>
+
+        {/* Testimonial content with fade animation */}
+        <div className="relative min-h-[180px]">
+          {testimonials.map((testimonial, idx) => (
+            <div
+              key={`${testimonial.name}-${idx}`}
+              className={`absolute inset-0 transition-all duration-500 ${
+                idx === activeIndex ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-8 pointer-events-none'
+              }`}
+            >
+              <blockquote className="text-xl text-slate-700 leading-relaxed">
+                "{testimonial.quote}"
+              </blockquote>
+              <div className="mt-8 flex items-center justify-center gap-4">
+                {testimonial.avatarUrl ? (
+                  <img
+                    src={testimonial.avatarUrl}
+                    alt={testimonial.name}
+                    className="h-12 w-12 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-400 to-purple-400" />
+                )}
+                <div className="text-left">
+                  <p className="font-semibold text-slate-900">{testimonial.name}</p>
+                  <p className="text-sm text-slate-500">{testimonial.role}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Dots indicator */}
+        {testimonials.length > 1 && (
+          <div className="flex justify-center gap-2 mt-8">
+            {testimonials.map((_, idx) => (
+              <button
+                key={idx}
+                onClick={() => setActiveIndex(idx)}
+                className={`h-2 rounded-full transition-all duration-300 ${
+                  idx === activeIndex ? 'w-6 bg-[#2e90fa]' : 'w-2 bg-slate-300 hover:bg-slate-400'
+                }`}
+                aria-label={`Go to testimonial ${idx + 1}`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// Main Component
+// ============================================================================
+const LandingPage = () => {
+  // Fetch CMS content
+  const { data: heroData } = useQuery({
+    queryKey: ['cms', 'landingHero'],
+    queryFn: async () => {
+      const { data } = await api.get('/public/cms/landingHero');
+      return data?.content as CmsHeroContent | undefined;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: testimonialsData } = useQuery({
+    queryKey: ['cms', 'testimonials'],
+    queryFn: async () => {
+      const { data } = await api.get('/public/cms/testimonials');
+      return data?.items as CmsTestimonial[] | undefined;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: howItWorksData } = useQuery({
+    queryKey: ['cms', 'howItWorks'],
+    queryFn: async () => {
+      const { data } = await api.get('/public/cms/howItWorks');
+      return data?.items as CmsHowItWorksItem[] | undefined;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Use CMS data with fallbacks
+  const heroContent = heroData ?? defaultHeroContent;
+  const testimonialsList: CmsTestimonial[] = testimonialsData ?? defaultTestimonials.map((t) => ({
+    ...t,
+    avatarUrl: undefined,
+  }));
+  const howItWorksSteps: CmsHowItWorksItem[] = howItWorksData ?? defaultHowItWorks.map((s) => ({
+    ...s,
+    imageUrl: undefined,
+  }));
+
+  return (
+    <div>
       <Seo
-        title="UGC Video Generator"
+        title="UGC Video Generator - Create AI Videos for TikTok, Reels & Shorts"
         description="Create high-converting UGC videos from a single image. Upload one photo, choose language & platform, and generate TikTok, Reels & Shorts-ready videos in minutes."
         url={getSiteUrl('/')}
       />
 
-      {/* 1) HERO */}
-      <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(34,197,94,0.18),rgba(2,6,23,0))]" />
-        <div className="mx-auto max-w-7xl px-6 pt-24 pb-14">
-          <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+      {/* ================================================================== */}
+      {/* 1) HERO SECTION */}
+      {/* ================================================================== */}
+      <section className="relative overflow-hidden bg-gradient-to-b from-white to-slate-50">
+        <div className="mx-auto max-w-7xl px-6 pt-20 pb-24">
+          <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
+            {/* Left: Copy */}
             <div>
-              <h1 className="text-4xl font-bold tracking-tight text-white md:text-6xl">
-                Create High-Converting UGC Videos from a Single Image
+              <PillBadge variant="blue">
+                <IconSparkles className="h-3.5 w-3.5" />
+                AI-Powered UGC Generation
+              </PillBadge>
+
+              <h1 className="mt-6 text-4xl font-bold tracking-tight text-slate-900 md:text-5xl lg:text-6xl">
+                Create UGC Videos for <TypingAnimation />
               </h1>
-              <p className="mt-5 max-w-2xl text-lg text-slate-300">
-                Upload one photo, choose language &amp; platform, and generate TikTok, Reels &amp; Shorts-ready UGC videos in minutes. No filming. No editing.
+
+              <p className="mt-6 text-lg text-slate-600 max-w-xl">
+                Upload one product image, choose your settings, and generate platform-ready UGC videos in minutes. No filming. No editing. No waiting.
               </p>
 
-              <div className="mt-8 flex flex-wrap items-center gap-3">
-                <Link
-                  to="/new-video"
-                  className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
-                >
-                  Generate your first UGC video
+              <div className="mt-8 flex flex-wrap gap-4">
+                <Link to="/new-video" className={primaryButton}>
+                  Start Creating Free
+                  <IconArrowRight className="h-4 w-4" />
                 </Link>
-                <a
-                  href="#examples"
-                  className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
-                >
-                  See example videos
+                <a href="#how-it-works" className={secondaryButton}>
+                  See How It Works
                 </a>
               </div>
 
-              <ul className="mt-6 space-y-2 text-sm text-slate-300">
-                {['20+ languages', 'Batch variations per image', 'Platform-ready formats'].map((item) => (
-                  <li key={item} className="flex items-center gap-2">
-                    <Check />
-                    <span>{item}</span>
+              <ul className="mt-10 space-y-3">
+                {['No filming required', '20+ languages supported', 'Download MP4 instantly'].map((item) => (
+                  <li key={item} className="flex items-center gap-3 text-slate-600">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-100">
+                      <IconCheck className="h-3 w-3 text-[#2e90fa]" />
+                    </span>
+                    {item}
                   </li>
                 ))}
               </ul>
             </div>
 
-            <div className={baseCard}>
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                <p className="text-sm font-semibold text-white">Product Preview</p>
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-                  9:16
-                </span>
-              </div>
-              <div className="p-5">
-                <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50">
-                  <div className="aspect-[9/16] w-full">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(34,197,94,0.18),rgba(2,6,23,0.6))]" />
-                    <div
-                      className="absolute inset-0 opacity-60"
-                      style={{
-                        backgroundImage:
-                          'radial-gradient(circle at 1px 1px, rgba(148,163,184,0.18) 1px, transparent 0)',
-                        backgroundSize: '18px 18px',
-                      }}
-                      aria-hidden="true"
-                    />
-                    <div className="absolute inset-0 animate-pulse bg-gradient-to-b from-white/[0.04] to-transparent" aria-hidden="true" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white">
-                        <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden="true">
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                      </div>
+            {/* Right: Video Preview */}
+            <div className="relative">
+              <div className="relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-blue-50 to-purple-50 shadow-2xl shadow-blue-500/10">
+                {heroContent.videoUrl ? (
+                  <video
+                    src={heroContent.videoUrl}
+                    poster={heroContent.videoPoster}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/90 shadow-lg">
+                      <IconPlay className="h-8 w-8 text-[#2e90fa]" />
                     </div>
                   </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {['Language', 'Platform', 'Voice', 'Vibe', 'CTA'].map((chip) => (
-                    <span
-                      key={chip}
-                      className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200"
-                    >
-                      {chip}
-                    </span>
-                  ))}
-                </div>
+                )}
+                {/* Decorative elements (only show if no video) */}
+                {!heroContent.videoUrl && (
+                  <>
+                    <div className="absolute top-4 left-4 right-4">
+                      <div className="h-2 w-16 rounded-full bg-white/50" />
+                    </div>
+                    <div className="absolute bottom-4 left-4 right-4">
+                      <div className="space-y-2">
+                        <div className="h-2 w-3/4 rounded-full bg-white/50" />
+                        <div className="h-2 w-1/2 rounded-full bg-white/50" />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              {/* Floating badges */}
+              <div className="absolute -left-4 top-1/4 rounded-xl bg-white px-4 py-2 shadow-lg border border-slate-100">
+                <p className="text-xs text-slate-500">Platform</p>
+                <p className="font-semibold text-slate-900">TikTok</p>
+              </div>
+              <div className="absolute -right-4 top-1/2 rounded-xl bg-white px-4 py-2 shadow-lg border border-slate-100">
+                <p className="text-xs text-slate-500">Language</p>
+                <p className="font-semibold text-slate-900">English</p>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 2) HOW IT WORKS */}
-      <section className="mx-auto max-w-7xl px-6 py-14">
-        <h2 className="text-3xl font-semibold text-white">How it works</h2>
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
-          {[
-            {
-              title: 'Upload a product image',
-              description: 'Drag & drop a single photo.',
-              icon: <IconUpload />,
-            },
-            {
-              title: 'Customize the voice & vibe',
-              description: 'Pick language, platform, voice profile, vibe, creator gender, age range, and CTA.',
-              icon: <IconSliders />,
-            },
-            {
-              title: 'Generate multiple videos',
-              description: 'Choose how many variations to render and download when ready.',
-              icon: <IconSparkles />,
-            },
-          ].map((step) => (
-            <article key={step.title} className={`${baseCard} p-6`}>
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/40">
-                {step.icon}
-              </div>
-              <h3 className="mt-4 text-lg font-semibold text-white">{step.title}</h3>
-              <p className="mt-2 text-sm text-slate-300">{step.description}</p>
-            </article>
-          ))}
+      {/* ================================================================== */}
+      {/* 2) SOCIAL PROOF */}
+      {/* ================================================================== */}
+      <section className="bg-slate-50 py-16 border-y border-slate-200">
+        <div className="mx-auto max-w-7xl px-6">
+          <p className="text-center text-sm font-medium text-slate-500 mb-10">
+            Trusted by 500+ brands and marketing teams
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-6">
+            {logos.map((logo) => (
+              <span
+                key={logo}
+                className="text-xl font-bold text-slate-300 transition hover:text-slate-500"
+              >
+                {logo}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Video Showcase Carousel */}
+        <div className="mt-12">
+          <p className="text-center text-sm font-medium text-slate-500 mb-4">
+            See what others are creating
+          </p>
+          <VideoCarousel />
         </div>
       </section>
 
-      {/* 3) WHAT YOU CAN GENERATE */}
-      <section className="mx-auto max-w-7xl px-6 py-14">
-        <div className="grid gap-10 lg:grid-cols-2 lg:items-start">
-          <div>
-            <h2 className="text-3xl font-semibold text-white">What you can generate</h2>
-            <p className="mt-3 text-base text-slate-300">
-              Short-form UGC videos designed for social performance.
-            </p>
-            <ul className="mt-6 space-y-3 text-sm text-slate-200">
-              {[
-                'Talking-head UGC style videos',
-                '20+ languages (including US & UK English)',
-                'TikTok / Reels / Shorts formats',
-                'Multiple hooks & CTAs per image',
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-2">
-                  <span className="mt-0.5">
-                    <Check />
-                  </span>
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
+      {/* ================================================================== */}
+      {/* 3) STATS SECTION */}
+      {/* ================================================================== */}
+      <section className="py-24">
+        <div className="mx-auto max-w-5xl px-6">
+          <div className="text-center mb-16">
+            <PillBadge>Platform Capabilities</PillBadge>
+            <h2 className="mt-4 text-3xl font-bold text-slate-900">Built for scale</h2>
+            <p className="mt-3 text-slate-600">Everything you need to create UGC at volume</p>
           </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            {[
-              { title: 'Example #1', duration: '0:18', platform: 'TikTok' },
-              { title: 'Example #2', duration: '0:22', platform: 'Reels' },
-              { title: 'Example #3', duration: '0:15', platform: 'Shorts' },
-              { title: 'Example #4', duration: '0:19', platform: 'TikTok' },
-            ].map((card) => (
-              <article key={card.title} className={`${baseCard} p-4`}>
-                <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50">
-                  <div className="aspect-[9/16] w-full">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(34,197,94,0.12),rgba(2,6,23,0.65))]" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white">
-                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-white">{card.title}</p>
-                  <span className="text-xs text-slate-400">{card.duration}</span>
-                </div>
-                <div className="mt-2">
-                  <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-200">
-                    {card.platform}
-                  </span>
-                </div>
-              </article>
+          <div className="grid gap-6 md:grid-cols-3">
+            {stats.map((stat) => (
+              <StatCard key={stat.label} {...stat} />
             ))}
           </div>
         </div>
       </section>
 
-      {/* 4) FULL CREATIVE CONTROL */}
-      <section className="mx-auto max-w-7xl px-6 py-14">
-        <h2 className="text-3xl font-semibold text-white">Full Creative Control — Without the Work</h2>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            { title: 'Language', description: 'Generate in 20+ languages.' },
-            { title: 'Platform', description: 'Optimized for TikTok, Reels, Shorts.' },
-            { title: 'Vibe', description: 'Choose the tone (e.g., Trusted guide, Energetic, Calm).' },
-            { title: 'Voice profile', description: 'Pick voice style to match your brand.' },
-            { title: 'Creator gender', description: 'Male / Female options.' },
-            { title: 'Age range', description: 'Select the on-camera persona age.' },
-            { title: 'CTA', description: 'Set the call-to-action.' },
-            { title: 'Custom prompt', description: 'Add your own instructions.' },
-            { title: 'Output batching', description: 'Choose 1–5+ variations per run.' },
-          ].map((item) => (
-            <article key={item.title} className={`${baseCard} p-5`}>
-              <h3 className="text-base font-semibold text-white">{item.title}</h3>
-              <p className="mt-2 text-sm text-slate-300">{item.description}</p>
-            </article>
-          ))}
-        </div>
-      </section>
+      {/* ================================================================== */}
+      {/* 4) HOW IT WORKS */}
+      {/* ================================================================== */}
+      <section id="how-it-works" className="bg-slate-50 py-24 scroll-mt-20">
+        <div className={sectionSpacing}>
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <PillBadge variant="purple">How It Works</PillBadge>
+            <h2 className="mt-4 text-3xl font-bold text-slate-900">Three steps to UGC at scale</h2>
+            <p className="mt-3 text-slate-600">From product image to publish-ready video in minutes</p>
+          </div>
 
-      {/* 5) USE CASES */}
-      <section className="mx-auto max-w-7xl px-6 py-14">
-        <h2 className="text-3xl font-semibold text-white">Built for people who ship creatives fast</h2>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            { title: 'E-commerce brands', description: 'Launch new product ads without filming.' },
-            { title: 'Performance marketers', description: 'Test angles & hooks quickly.' },
-            { title: 'Agencies', description: 'Deliver more variations per client.' },
-            { title: 'Creators', description: 'Generate consistent UGC output on demand.' },
-          ].map((item) => (
-            <article key={item.title} className={`${baseCard} p-6`}>
-              <h3 className="text-base font-semibold text-white">{item.title}</h3>
-              <p className="mt-2 text-sm text-slate-300">{item.description}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      {/* 6) EXAMPLES */}
-      <section id="examples" className="mx-auto max-w-7xl px-6 py-14 scroll-mt-24">
-        <h2 className="text-3xl font-semibold text-white">Example UGC Videos</h2>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {examples.map((item, idx) => (
-            <article key={item.key} className={`${baseCard} p-4`}>
-              <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50">
-                {item.videoUrl ? (
-                  <div className="aspect-[9/16] w-full">
-                    <iframe
-                      src={item.videoUrl}
-                      title={item.title}
-                      className="h-full w-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
-                  </div>
-                ) : (
-                  <div className="relative aspect-[9/16] w-full">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(34,197,94,0.12),rgba(2,6,23,0.7))]" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white">
-                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
+          <div className="space-y-16">
+            {howItWorksSteps.map((step, idx) => {
+              const iconComponent = howItWorks[idx]?.icon ?? <IconSparkles />;
+              return (
+                <div
+                  key={step.title}
+                  className={`flex flex-col lg:flex-row items-center gap-12 ${idx % 2 === 1 ? 'lg:flex-row-reverse' : ''}`}
+                >
+                  {/* Image or placeholder */}
+                  <div className="flex-1 w-full">
+                    {step.imageUrl ? (
+                      <div className="aspect-video rounded-2xl overflow-hidden border border-slate-200 shadow-lg">
+                        <img
+                          src={step.imageUrl}
+                          alt={step.title}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
-                    </div>
+                    ) : (
+                      <div className="aspect-video rounded-2xl bg-gradient-to-br from-blue-100 to-purple-100 border border-slate-200 flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-lg">
+                            {iconComponent}
+                          </div>
+                          <p className="text-sm font-medium text-slate-500">Step {idx + 1}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              <div className="mt-4 flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-white">{item.title || `Example #${idx + 1}`}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-        <div className="mt-8">
-          <Link
-            to="/new-video"
-            className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
-          >
-            Generate your first UGC video
-          </Link>
-        </div>
-      </section>
-
-      {/* 7) PRICING TEASER */}
-      <section className="mx-auto max-w-7xl px-6 py-14">
-        <div className={`${baseCard} p-8 md:p-10`}>
-          <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h2 className="text-3xl font-semibold text-white">Plans built for how much you create</h2>
-              <p className="mt-3 text-base text-slate-300">
-                Choose a plan based on monthly output. Upgrade anytime.
-              </p>
-              <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-300">
-                {[
-                  'Starter: saves last 10 videos',
-                  'Growth: saves last 20 videos',
-                  'Scale: saves last 30 videos',
-                ].map((hint) => (
-                  <span key={hint} className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                    {hint}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <Link
-                to="/pricing"
-                className="inline-flex items-center justify-center rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
-              >
-                View Pricing
-              </Link>
-            </div>
+                  {/* Text */}
+                  <div className="flex-1">
+                    <div className="flex items-center gap-4 mb-4">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2e90fa] text-white font-bold text-lg">
+                        {idx + 1}
+                      </span>
+                      <h3 className="text-xl font-bold text-slate-900">{step.title}</h3>
+                    </div>
+                    <p className="text-slate-600 leading-relaxed">{step.description}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {/* 8) FAQ */}
-      <section className="mx-auto max-w-7xl px-6 py-14">
-        <h2 className="text-3xl font-semibold text-white">FAQ</h2>
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
-          {[
-            { q: 'What do I need to start?', a: 'One product image is enough.' },
-            { q: 'How long does generation take?', a: 'Typically minutes, depending on queue and batch size.' },
-            { q: 'Can I add my own prompt?', a: 'Yes, you can provide custom instructions.' },
-            { q: 'Which platforms are supported?', a: 'TikTok, Instagram Reels, YouTube Shorts.' },
-            { q: 'Do you support multiple languages?', a: 'Yes, 20+ languages including US/UK English.' },
-            {
-              q: 'What does ‘Videos Saved’ mean?',
-              a: 'Your plan determines how many recent videos remain visible in your dashboard.',
-            },
-          ].map((item) => (
-            <article key={item.q} className={`${baseCard} p-6`}>
-              <h3 className="text-base font-semibold text-white">{item.q}</h3>
-              <p className="mt-2 text-sm text-slate-300">{item.a}</p>
-            </article>
-          ))}
+      {/* ================================================================== */}
+      {/* 5) FEATURES */}
+      {/* ================================================================== */}
+      <section className="py-24">
+        <div className={sectionSpacing}>
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <PillBadge variant="green">Features</PillBadge>
+            <h2 className="mt-4 text-3xl font-bold text-slate-900">Everything you need for UGC at scale</h2>
+            <p className="mt-3 text-slate-600">Powerful features designed for performance marketers and brands</p>
+          </div>
+
+          <div className="grid gap-8 md:grid-cols-2">
+            {features.map((feature) => (
+              <div key={feature.title} className={`${baseCard} p-8`}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50">
+                  {feature.icon}
+                </div>
+                <h3 className="mt-5 text-lg font-semibold text-slate-900">{feature.title}</h3>
+                <p className="mt-2 text-slate-600">{feature.description}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* 9) PRIVACY / SIMPLE TRUST */}
-      <section className="mx-auto max-w-7xl px-6 py-14">
-        <div className="grid gap-4 md:grid-cols-3">
-          {['Your uploads are private.', 'Commercial use allowed.', 'No editing timeline — just generate and ship.'].map(
-            (statement) => (
-              <div key={statement} className={`${baseCard} p-6 text-sm text-slate-200`}>
-                {statement}
+      {/* ================================================================== */}
+      {/* 6) TESTIMONIALS CAROUSEL */}
+      {/* ================================================================== */}
+      <section className="bg-slate-50 py-24">
+        <div className={sectionSpacing}>
+          <TestimonialCarousel testimonials={testimonialsList} />
+        </div>
+      </section>
+
+      {/* ================================================================== */}
+      {/* 7) PRICING PREVIEW */}
+      {/* ================================================================== */}
+      <section className="py-24">
+        <div className={sectionSpacing}>
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <PillBadge>Pricing</PillBadge>
+            <h2 className="mt-4 text-3xl font-bold text-slate-900">Simple, transparent pricing</h2>
+            <p className="mt-3 text-slate-600">Choose the plan that fits your creative volume</p>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-3 max-w-5xl mx-auto">
+            {pricingPlans.map((plan) => (
+              <div
+                key={plan.name}
+                className={`${baseCard} p-8 text-center relative ${plan.popular ? 'ring-2 ring-[#2e90fa] shadow-lg scale-105' : ''}`}
+              >
+                {plan.popular && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 inline-block rounded-full bg-[#2e90fa] px-4 py-1 text-xs font-semibold text-white shadow-lg">
+                    Most Popular
+                  </span>
+                )}
+                <h3 className="text-xl font-bold text-slate-900">{plan.name}</h3>
+                <div className="mt-6">
+                  <span className="text-5xl font-bold text-slate-900">${plan.priceUsd}</span>
+                  <span className="text-slate-500">/month</span>
+                </div>
+                <div className="mt-2 text-sm text-slate-500">
+                  or ${plan.annualPriceUsd}/year <span className="text-green-600 font-medium">(save 17%)</span>
+                </div>
+                <div className="mt-6 py-4 border-t border-slate-100">
+                  <p className="text-3xl font-bold text-[#2e90fa]">{plan.quota}</p>
+                  <p className="text-sm text-slate-600 mt-1">videos per month</p>
+                </div>
+                <ul className="mt-6 space-y-3 text-left">
+                  <li className="flex items-center gap-3 text-sm text-slate-600">
+                    <IconCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    Full commercial rights
+                  </li>
+                  <li className="flex items-center gap-3 text-sm text-slate-600">
+                    <IconCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    20+ languages supported
+                  </li>
+                  <li className="flex items-center gap-3 text-sm text-slate-600">
+                    <IconCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    All platforms (TikTok, Reels, Shorts)
+                  </li>
+                  <li className="flex items-center gap-3 text-sm text-slate-600">
+                    <IconCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    Priority rendering queue
+                  </li>
+                </ul>
+                <Link
+                  to="/pricing"
+                  className={`mt-8 block w-full rounded-full py-3 text-center text-sm font-semibold transition ${
+                    plan.popular
+                      ? 'bg-[#2e90fa] text-white hover:bg-[#1a7ae8] shadow-lg shadow-blue-500/20'
+                      : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  Get Started
+                </Link>
               </div>
-            ),
-          )}
+            ))}
+          </div>
+
+          <p className="mt-12 text-center text-slate-500">
+            Need more volume?{' '}
+            <Link to="/contact" className="text-[#2e90fa] font-medium hover:underline">
+              Contact us for enterprise pricing
+            </Link>
+          </p>
+        </div>
+      </section>
+
+      {/* ================================================================== */}
+      {/* 8) FAQ */}
+      {/* ================================================================== */}
+      <section className="bg-slate-50 py-24">
+        <div className={sectionSpacing}>
+          <div className="grid gap-12 lg:grid-cols-[1fr_1.5fr] lg:items-start">
+            <div>
+              <PillBadge>FAQ</PillBadge>
+              <h2 className="mt-4 text-3xl font-bold text-slate-900">Frequently asked questions</h2>
+              <p className="mt-3 text-slate-600">Everything you need to know about the platform</p>
+              <Link to="/contact" className="mt-6 inline-flex items-center gap-2 text-[#2e90fa] font-medium hover:underline">
+                Contact support
+                <IconArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+            <FaqAccordion items={faqs} />
+          </div>
+        </div>
+      </section>
+
+      {/* ================================================================== */}
+      {/* 9) FINAL CTA */}
+      {/* ================================================================== */}
+      <section className="py-24">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="rounded-3xl bg-gradient-to-r from-[#2e90fa] to-blue-600 px-8 py-20 text-center">
+            <h2 className="text-3xl font-bold text-white md:text-4xl">Ready to create your first UGC video?</h2>
+            <p className="mt-4 text-lg text-blue-100 max-w-2xl mx-auto">
+              Join 500+ brands using AI to generate high-converting UGC at scale. No credit card required to start.
+            </p>
+            <div className="mt-10 flex flex-wrap justify-center gap-4">
+              <Link
+                to="/new-video"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-8 py-4 text-sm font-semibold text-[#2e90fa] shadow-lg transition hover:bg-blue-50"
+              >
+                Get Started Free
+                <IconArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/examples"
+                className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-white/30 px-8 py-4 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                View Examples
+              </Link>
+            </div>
+          </div>
         </div>
       </section>
     </div>

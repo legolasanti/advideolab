@@ -1,5 +1,4 @@
 -- System-wide settings (SMTP, Stripe, owner sandbox)
-BEGIN;
 
 CREATE TABLE IF NOT EXISTS "SystemConfig" (
     "id" TEXT NOT NULL DEFAULT 'singleton',
@@ -21,6 +20,4 @@ CREATE TABLE IF NOT EXISTS "SystemConfig" (
 
     CONSTRAINT "SystemConfig_pkey" PRIMARY KEY ("id")
 );
-
-COMMIT;
 

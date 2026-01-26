@@ -1,42 +1,57 @@
 import type { JSX } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import { Navigate, Route, Routes, Outlet } from 'react-router-dom';
-import DashboardPage from './pages/DashboardPage';
-import LoginPage from './pages/LoginPage';
-import SignupPage from './pages/SignupPage';
-import ForgotPasswordPage from './pages/ForgotPasswordPage';
-import ResetPasswordPage from './pages/ResetPasswordPage';
-import CheckoutSuccessPage from './pages/CheckoutSuccessPage';
-import CheckoutCancelPage from './pages/CheckoutCancelPage';
-import NewVideoPage from './pages/NewVideoPage';
-import JobsPage from './pages/JobsPage';
-import SettingsPage from './pages/SettingsPage';
-import UsersPage from './pages/UsersPage';
-import OwnerTenantsPage from './pages/OwnerTenantsPage';
-import OwnerUsersPage from './pages/OwnerUsersPage';
-import OwnerCmsPage from './pages/OwnerCmsPage';
-import OwnerCouponsPage from './pages/OwnerCouponsPage';
-import OwnerBlogPage from './pages/OwnerBlogPage';
-import OwnerSettingsPage from './pages/OwnerSettingsPage';
 import { useAuth } from './providers/AuthProvider';
 import AppLayout from './components/AppLayout';
-import MarketingLayout from './layouts/MarketingLayout';
-import LandingPage from './pages/marketing/LandingPage';
-import ProductPage from './pages/marketing/ProductPage';
-import PricingPage from './pages/marketing/PricingPage';
-import AboutPage from './pages/marketing/AboutPage';
-import ContactPage from './pages/marketing/ContactPage';
-import ExamplesPage from './pages/marketing/ExamplesPage';
-import BlogPage from './pages/marketing/BlogPage';
-import BlogPostPage from './pages/marketing/BlogPostPage';
-import PrivacyPolicyPage from './pages/marketing/PrivacyPolicyPage';
-import TermsPage from './pages/marketing/TermsPage';
-import CookiePolicyPage from './pages/marketing/CookiePolicyPage';
+import LightMarketingLayout from './layouts/LightMarketingLayout';
+import CodeInjection from './components/CodeInjection';
+
+// Determine if we're on the app subdomain (app.example.com) vs main domain (example.com)
+const getIsAppSubdomain = () => {
+  const hostname = window.location.hostname;
+  // Check if hostname starts with 'app.' or is localhost (for development)
+  return hostname.startsWith('app.') || hostname === 'localhost' || hostname === '127.0.0.1';
+};
+
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const SignupPage = lazy(() => import('./pages/SignupPage'));
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
+const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage'));
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
+const CheckoutSuccessPage = lazy(() => import('./pages/CheckoutSuccessPage'));
+const CheckoutCancelPage = lazy(() => import('./pages/CheckoutCancelPage'));
+const NewVideoPage = lazy(() => import('./pages/NewVideoPage'));
+const JobsPage = lazy(() => import('./pages/JobsPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const UsersPage = lazy(() => import('./pages/UsersPage'));
+const OwnerTenantsPage = lazy(() => import('./pages/OwnerTenantsPage'));
+const OwnerUsersPage = lazy(() => import('./pages/OwnerUsersPage'));
+const OwnerCmsPage = lazy(() => import('./pages/OwnerCmsPage'));
+const OwnerCouponsPage = lazy(() => import('./pages/OwnerCouponsPage'));
+const OwnerBlogPage = lazy(() => import('./pages/OwnerBlogPage'));
+const OwnerSettingsPage = lazy(() => import('./pages/OwnerSettingsPage'));
+const OwnerCancellationsPage = lazy(() => import('./pages/OwnerCancellationsPage'));
+const OwnerShowcaseVideosPage = lazy(() => import('./pages/OwnerShowcaseVideosPage'));
+const OwnerAnalyticsPage = lazy(() => import('./pages/OwnerAnalyticsPage'));
+const LandingPage = lazy(() => import('./pages/marketing/LandingPage'));
+const ProductPage = lazy(() => import('./pages/marketing/ProductPage'));
+const PricingPage = lazy(() => import('./pages/marketing/PricingPage'));
+const AboutPage = lazy(() => import('./pages/marketing/AboutPage'));
+const ContactPage = lazy(() => import('./pages/marketing/ContactPage'));
+const ExamplesPage = lazy(() => import('./pages/marketing/ExamplesPage'));
+const BlogPage = lazy(() => import('./pages/marketing/BlogPage'));
+const BlogPostPage = lazy(() => import('./pages/marketing/BlogPostPage'));
+const PrivacyPolicyPage = lazy(() => import('./pages/marketing/PrivacyPolicyPage'));
+const TermsPage = lazy(() => import('./pages/marketing/TermsPage'));
+const CookiePolicyPage = lazy(() => import('./pages/marketing/CookiePolicyPage'));
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const { token, loading } = useAuth();
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center text-slate-500">
+      <div className="flex h-screen items-center justify-center bg-white text-slate-500">
         Checking session...
       </div>
     );
@@ -53,48 +68,81 @@ const AppLayoutWrapper = () => (
   </AppLayout>
 );
 
-const App = () => (
-  <Routes>
-    <Route element={<MarketingLayout />}>
-      <Route index element={<LandingPage />} />
-      <Route path="/product" element={<ProductPage />} />
-      <Route path="/pricing" element={<PricingPage />} />
-      <Route path="/about" element={<AboutPage />} />
-      <Route path="/contact" element={<ContactPage />} />
-      <Route path="/examples" element={<ExamplesPage />} />
-      <Route path="/privacy" element={<PrivacyPolicyPage />} />
-      <Route path="/terms" element={<TermsPage />} />
-      <Route path="/cookie-policy" element={<CookiePolicyPage />} />
-      <Route path="/blog" element={<BlogPage />} />
-      <Route path="/blog/:slug" element={<BlogPostPage />} />
-    </Route>
-    <Route path="/login" element={<LoginPage />} />
-    <Route path="/signup" element={<SignupPage />} />
-    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-    <Route path="/reset-password" element={<ResetPasswordPage />} />
-    <Route
-      element={
-        <RequireAuth>
-          <AppLayoutWrapper />
-        </RequireAuth>
+const App = () => {
+  const isAppSubdomain = useMemo(() => getIsAppSubdomain(), []);
+
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center bg-white text-sm text-slate-500">Loading...</div>
       }
     >
-      <Route path="/app" element={<DashboardPage />} />
-      <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
-      <Route path="/checkout/cancel" element={<CheckoutCancelPage />} />
-      <Route path="/new-video" element={<NewVideoPage />} />
-      <Route path="/jobs" element={<JobsPage />} />
-      <Route path="/settings" element={<SettingsPage />} />
-      <Route path="/users" element={<UsersPage />} />
-      <Route path="/owner/tenants" element={<OwnerTenantsPage />} />
-      <Route path="/owner/users" element={<OwnerUsersPage />} />
-      <Route path="/owner/cms" element={<OwnerCmsPage />} />
-      <Route path="/owner/coupons" element={<OwnerCouponsPage />} />
-      <Route path="/owner/blog" element={<OwnerBlogPage />} />
-      <Route path="/owner/settings" element={<OwnerSettingsPage />} />
-    </Route>
-    <Route path="*" element={<Navigate to="/" replace />} />
-  </Routes>
-);
+      <CodeInjection />
+      <Routes>
+        {/* Marketing pages - only shown on main domain (not app subdomain) */}
+        {!isAppSubdomain && (
+          <Route element={<LightMarketingLayout />}>
+            <Route index element={<LandingPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/product" element={<ProductPage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/contact" element={<ContactPage />} />
+            <Route path="/examples" element={<ExamplesPage />} />
+            <Route path="/privacy" element={<PrivacyPolicyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/cookie-policy" element={<CookiePolicyPage />} />
+            <Route path="/blog" element={<BlogPage />} />
+            <Route path="/blog/:slug" element={<BlogPostPage />} />
+          </Route>
+        )}
+
+        {/* App subdomain: redirect root to login or dashboard */}
+        {isAppSubdomain && (
+          <Route index element={<Navigate to="/login" replace />} />
+        )}
+
+        {/* Auth pages - available on both domains */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+        {/* Protected app routes */}
+        <Route
+          element={
+            <RequireAuth>
+              <AppLayoutWrapper />
+            </RequireAuth>
+          }
+        >
+          <Route path="/app" element={<DashboardPage />} />
+          <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
+          <Route path="/checkout/cancel" element={<CheckoutCancelPage />} />
+          <Route path="/new-video" element={<NewVideoPage />} />
+          <Route path="/jobs" element={<JobsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/users" element={<UsersPage />} />
+          <Route path="/owner/tenants" element={<OwnerTenantsPage />} />
+          <Route path="/owner/analytics" element={<OwnerAnalyticsPage />} />
+          <Route path="/owner/users" element={<OwnerUsersPage />} />
+          <Route path="/owner/cms" element={<OwnerCmsPage />} />
+          <Route path="/owner/coupons" element={<OwnerCouponsPage />} />
+          <Route path="/owner/cancellations" element={<OwnerCancellationsPage />} />
+          <Route path="/owner/showcase-videos" element={<OwnerShowcaseVideosPage />} />
+          <Route path="/owner/blog" element={<OwnerBlogPage />} />
+          <Route path="/owner/settings" element={<OwnerSettingsPage />} />
+        </Route>
+
+        {/* Fallback: redirect to appropriate page based on domain */}
+        <Route
+          path="*"
+          element={<Navigate to={isAppSubdomain ? '/login' : '/'} replace />}
+        />
+      </Routes>
+    </Suspense>
+  );
+};
 
 export default App;

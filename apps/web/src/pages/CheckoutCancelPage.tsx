@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
+import { getMarketingContext } from '../lib/marketing';
 
 const CheckoutCancelPage = () => {
   const navigate = useNavigate();
@@ -11,7 +12,8 @@ const CheckoutCancelPage = () => {
     setError(null);
     setLoading(true);
     try {
-      const { data } = await api.post('/tenant/billing/checkout', {});
+      const marketing = getMarketingContext();
+      const { data } = await api.post('/tenant/billing/checkout', { marketing });
       if (data?.url) {
         window.location.href = data.url;
         return;
@@ -61,4 +63,3 @@ const CheckoutCancelPage = () => {
 };
 
 export default CheckoutCancelPage;
-

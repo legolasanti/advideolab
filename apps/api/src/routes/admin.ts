@@ -7,6 +7,10 @@ import { upload } from '../middleware/upload';
 import { uploadBuffer, generateAssetKey } from '../lib/s3';
 import { encrypt } from '../lib/crypto';
 import { hashPassword } from '../services/password';
+import { env } from '../config/env';
+import { resolveSafeExternalTarget, UnsafeExternalUrlError } from '../utils/safeUrl';
+import { validateUpload } from '../utils/fileValidation';
+import { sanitizeImage } from '../services/imageProcessing';
 
 const router = Router();
 
@@ -47,8 +51,22 @@ router.post(
     if (!req.tenant) return res.status(400).json({ error: 'Tenant missing' });
     let logoUrl = req.tenant.logoUrl;
     if (req.file) {
-      const key = generateAssetKey(req.tenant.id, 'input', `logo-${Date.now()}`, 'png');
-      logoUrl = await uploadBuffer(req.file.buffer, key, req.file.mimetype);
+      try {
+        validateUpload(req.file);
+      } catch (err: any) {
+        return res.status(400).json({ error: err?.message ?? 'Invalid upload' });
+      }
+
+      let sanitized;
+      try {
+        sanitized = await sanitizeImage(req.file);
+      } catch (_err) {
+        return res.status(400).json({ error: 'Invalid image file' });
+      }
+
+      const contentType = sanitized.ext === 'png' ? 'image/png' : 'image/jpeg';
+      const key = generateAssetKey(req.tenant.id, 'input', `logo-${Date.now()}`, sanitized.ext);
+      logoUrl = await uploadBuffer(sanitized.buffer, key, contentType);
     }
 
     const data = {
@@ -73,15 +91,37 @@ router.post(
   requireTenantRole(['tenant_admin']),
   zodHandler(
     z.object({
-      n8nBaseUrl: z.string().url(),
-      n8nProcessPath: z.string(),
+      n8nBaseUrl: z.string().url().max(2048),
+      n8nProcessPath: z
+        .string()
+        .min(1)
+        .max(2048)
+        .refine((value) => value.startsWith('/'), { message: 'n8nProcessPath must start with "/"' }),
     }),
     async (req, res, body) => {
+      const allowlist = (env.n8nHostAllowlist ?? '')
+        .split(',')
+        .map((entry) => entry.trim().toLowerCase().replace(/\.$/, ''))
+        .filter(Boolean);
+      const base = body.n8nBaseUrl.trim();
+      const path = body.n8nProcessPath.trim();
+      const url = new URL(path, base).toString();
+      try {
+        await resolveSafeExternalTarget(url, {
+          allowHttp: !env.isProd,
+          allowedHostnames: allowlist,
+          isProd: env.isProd,
+        });
+      } catch (err: any) {
+        const message = err instanceof UnsafeExternalUrlError ? err.message : 'Invalid n8n URL';
+        return res.status(400).json({ error: 'invalid_n8n_url', message });
+      }
+
       const tenant = await prisma.tenant.update({
         where: { id: req.tenant!.id },
         data: {
-          n8nBaseUrl: body.n8nBaseUrl,
-          n8nProcessPath: body.n8nProcessPath,
+          n8nBaseUrl: base.replace(/\/$/, ''),
+          n8nProcessPath: path,
         },
       });
       await audit(req.tenant!.id, req.auth?.userId, 'update_n8n', body);

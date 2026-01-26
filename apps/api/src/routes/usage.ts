@@ -20,6 +20,9 @@ router.get('/', requireAuth, async (req, res) => {
     reset_day: stats.tenant.resetDay,
     billing_cycle_start: stats.billingCycleStart,
     next_billing_date: stats.nextBillingDate,
+    usage_cycle_start: stats.usageCycleStart,
+    usage_cycle_end: stats.usageCycleEnd,
+    subscription_period_end: stats.subscriptionPeriodEnd ?? null,
     bonus_credits: stats.bonusCredits,
   });
 });

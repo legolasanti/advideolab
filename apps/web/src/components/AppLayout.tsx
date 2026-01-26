@@ -40,13 +40,13 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
     {
       to: '/new-video',
       label: 'New Generation',
-      show: !isOwner,
+      show: true,
       icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
     },
     {
       to: '/jobs',
       label: 'Project History',
-      show: !isOwner,
+      show: true,
       icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
     },
     {
@@ -62,10 +62,13 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
       icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
     },
     { to: '/owner/tenants', label: 'Tenants Console', show: role === 'owner_superadmin' },
+    { to: '/owner/analytics', label: 'Analytics', show: role === 'owner_superadmin' },
     { to: '/owner/users', label: 'All Users', show: role === 'owner_superadmin' },
     { to: '/owner/settings', label: 'System Settings', show: role === 'owner_superadmin' },
     { to: '/owner/cms', label: 'CMS Manager', show: role === 'owner_superadmin' },
     { to: '/owner/coupons', label: 'Coupons', show: role === 'owner_superadmin' },
+    { to: '/owner/cancellations', label: 'Cancellations', show: role === 'owner_superadmin' },
+    { to: '/owner/showcase-videos', label: 'Showcase Videos', show: role === 'owner_superadmin' },
     { to: '/owner/blog', label: 'Blog', show: role === 'owner_superadmin' },
   ].filter((item) => item.show);
 
@@ -79,10 +82,7 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
       <aside className="relative z-10 flex w-72 flex-col gap-8 border-r border-white/5 bg-slate-900/40 backdrop-blur-xl px-6 py-8">
         <div>
           <div className="flex items-center gap-2 mb-6">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polygon points="6 3 20 12 6 21 6 3" /></svg>
-            </div>
-            <span className="font-bold text-lg tracking-tight">CINEAI <span className="text-slate-500 font-normal">Studio</span></span>
+            <img src="/logo.png" alt="AdVideoLab" className="h-8 w-auto" />
           </div>
 
           <div className="rounded-xl bg-white/5 border border-white/5 p-4">

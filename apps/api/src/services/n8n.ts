@@ -34,6 +34,7 @@ type N8nOptions = {
   composition?: {
     useCloudinary: boolean;
     composeServiceUrl?: string;
+    composeInternalToken?: string;
     cloudinary?: {
       cloudName: string;
       apiKey: string;
@@ -42,9 +43,16 @@ type N8nOptions = {
   };
 };
 
+type TriggerWorkflowRequestOptions = {
+  httpAgent?: any;
+  httpsAgent?: any;
+  timeoutMs?: number;
+};
+
 export const triggerWorkflow = async (
   url: string,
   options: N8nOptions,
+  requestOptions: TriggerWorkflowRequestOptions = {},
 ): Promise<{ immediateOutputs?: any; acknowledged: boolean }> => {
   const normalizedCreativeBrief = options.creativeBrief ?? '';
   const normalizedCallToAction = options.callToAction ?? null;
@@ -116,6 +124,9 @@ export const triggerWorkflow = async (
     if (options.composition.composeServiceUrl) {
       form.append('compose_service_url', options.composition.composeServiceUrl);
     }
+    if (options.composition.composeInternalToken) {
+      form.append('compose_internal_token', options.composition.composeInternalToken);
+    }
     if (options.composition.cloudinary) {
       form.append('cloudinary_cloud_name', options.composition.cloudinary.cloudName);
       form.append('cloudinary_api_key', options.composition.cloudinary.apiKey);
@@ -125,7 +136,10 @@ export const triggerWorkflow = async (
 
   const response = await axios.post(url, form, {
     headers: form.getHeaders(),
-    timeout: 60000,
+    timeout: requestOptions.timeoutMs ?? 60_000,
+    httpAgent: requestOptions.httpAgent,
+    httpsAgent: requestOptions.httpsAgent,
+    proxy: false,
   });
 
   if (env.n8nSync && response.data?.outputs) {

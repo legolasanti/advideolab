@@ -1,5 +1,4 @@
 -- Add payment status and bonus credits to tenants
-BEGIN;
 
 DO $$
 BEGIN
@@ -11,5 +10,3 @@ END$$;
 ALTER TABLE "Tenant"
 ADD COLUMN IF NOT EXISTS "bonusCredits" INTEGER NOT NULL DEFAULT 0,
 ADD COLUMN IF NOT EXISTS "paymentStatus" "PaymentStatus" NOT NULL DEFAULT 'payment_pending';
-
-COMMIT;

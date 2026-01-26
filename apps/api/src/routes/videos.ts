@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import axios from 'axios';
 import { JobStatus } from '@prisma/client';
 import { requireAuth, requireTenantRole } from '../middleware/auth';
 import { upload } from '../middleware/upload';
@@ -15,12 +16,14 @@ import {
   persistOutputsToStorage,
 } from '../services/jobService';
 import { prisma } from '../lib/prisma';
+import { downloadBufferByKey, resolveKeyFromPublicUrl } from '../lib/s3';
 import {
   ensureTenantReadyForUsage,
   QuotaExceededError,
   TenantBlockedError,
   BillingPeriodExpiredError,
 } from '../services/quota';
+import { env } from '../config/env';
 
 const router = Router();
 const videoLimiter = rateLimit({
@@ -46,11 +49,101 @@ const optionalText = (value: string | undefined) => (value && value.length > 0 ?
 const creatorGenderChoices = new Set(['female', 'male']);
 const creatorAgeRanges = new Set(['18-25', '25-35', '35-45', '45-55', '55-65', '65+']);
 const defaultCallToAction = 'none';
+const maxInputAssetBytes = 10 * 1024 * 1024;
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+const hasPngMagic = (buffer: Buffer) =>
+  buffer.length >= PNG_MAGIC.length && buffer.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC);
+
+const hasJpegMagic = (buffer: Buffer) =>
+  buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+
+const detectMimeType = (buffer: Buffer) => {
+  if (hasPngMagic(buffer)) return 'image/png';
+  if (hasJpegMagic(buffer)) return 'image/jpeg';
+  return null;
+};
+
+const publicCdnOrigin = (() => {
+  try {
+    return new URL(env.PUBLIC_CDN_BASE).origin;
+  } catch (_err) {
+    return null;
+  }
+})();
+
+const isPublicCdnAssetUrl = (value: string) => {
+  if (!publicCdnOrigin) return false;
+  try {
+    return new URL(value).origin === publicCdnOrigin;
+  } catch (_err) {
+    return false;
+  }
+};
 
 const sanitizeChoice = (value: unknown, fallback: string, allowed: Set<string>) => {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
   return allowed.has(normalized) ? normalized : fallback;
+};
+
+const resolveRerunOptions = (raw: unknown) => {
+  const record = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const videoCount = clampNumber(record.videoCount ?? 1, 1, 5, 1);
+  const creativeBrief = typeof record.creativeBrief === 'string' ? scrubText(record.creativeBrief, '', 1200) : undefined;
+  const callToActionRaw = typeof record.callToAction === 'string' ? record.callToAction : undefined;
+  const callToAction =
+    callToActionRaw && callToActionRaw.trim().length > 0 && callToActionRaw.trim() !== defaultCallToAction
+      ? callToActionRaw.trim()
+      : undefined;
+
+  return {
+    scriptLanguage: scrubText(record.scriptLanguage ?? 'en-US', 'en-US', 16),
+    platformFocus: scrubText(record.platformFocus ?? 'tiktok_vertical', 'tiktok_vertical', 32),
+    vibe: scrubText(record.vibe ?? 'future_retail', 'future_retail', 32),
+    voiceProfile: scrubText(record.voiceProfile ?? 'creator_next_door', 'creator_next_door', 32),
+    callToAction,
+    videoCount,
+    creativeBrief,
+    creatorGender: sanitizeChoice(record.creatorGender, 'female', creatorGenderChoices),
+    creatorAgeRange: sanitizeChoice(record.creatorAgeRange, '25-35', creatorAgeRanges),
+  };
+};
+
+const downloadInputAssetBuffer = async (url: string) => {
+  const key = resolveKeyFromPublicUrl(url);
+  if (key) {
+    return downloadBufferByKey(key);
+  }
+  if (!isPublicCdnAssetUrl(url)) {
+    throw new Error('Input asset URL is not allowed');
+  }
+
+  const response = await axios.get<ArrayBuffer>(url, {
+    responseType: 'arraybuffer',
+    timeout: 60_000,
+    maxContentLength: maxInputAssetBytes,
+    maxBodyLength: maxInputAssetBytes,
+    validateStatus: (status) => status >= 200 && status < 300,
+  });
+  return Buffer.from(response.data);
+};
+
+const buildMulterFile = (buffer: Buffer, mimeType: string): Express.Multer.File => {
+  const ext = mimeType === 'image/png' ? 'png' : 'jpg';
+  return {
+    fieldname: 'file',
+    originalname: `rerun-input.${ext}`,
+    encoding: '7bit',
+    mimetype: mimeType,
+    size: buffer.length,
+    destination: '',
+    filename: '',
+    path: '',
+    buffer,
+    stream: undefined as any,
+  };
 };
 
 const callbackSchema = z.object({
@@ -274,7 +367,8 @@ router.post('/jobs/:id/callback', async (req, res) => {
   const expectedToken = callbackTokenFromOptions(job.options);
   const expectedTokenHash = callbackTokenHashFromOptions(job.options);
   const headerToken = req.header('x-callback-token');
-  const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
+  const queryToken =
+    env.allowCallbackTokenQuery && typeof req.query.token === 'string' ? req.query.token : undefined;
   const providedToken = parseCallbackToken(headerToken ?? queryToken);
 
   const authorized = (() => {
@@ -364,23 +458,90 @@ router.post('/jobs/:id/callback', async (req, res) => {
   }
 });
 
-router.post('/jobs/:id/rerun', requireAuth, requireTenantRole(['tenant_admin']), async (req, res) => {
-  if (!req.auth?.tenantId) {
-    return res.status(400).json({ error: 'Tenant missing' });
-  }
-  const job = await prisma.job.findFirst({
-    where: { id: req.params.id, tenantId: req.auth.tenantId },
-  });
-  if (!job) {
-    return res.status(404).json({ error: 'Job not found' });
-  }
+router.post('/jobs/:id/rerun', requireAuth, requireTenantRole(['tenant_admin']), async (req, res, next) => {
+  try {
+    if (!req.auth?.tenantId) {
+      return res.status(400).json({ error: 'Tenant missing' });
+    }
+    const job = await prisma.job.findFirst({
+      where: { id: req.params.id, tenantId: req.auth.tenantId },
+      select: { id: true, tenantId: true, inputAssetId: true, options: true },
+    });
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
 
-  if (!job.inputAssetId) {
-    return res.status(400).json({ error: 'Original input unavailable' });
-  }
+    if (!job.inputAssetId) {
+      return res.status(400).json({ error: 'Original input unavailable' });
+    }
 
-  // For MVP we simply duplicate options and rely on front-end to re-upload when needed.
-  return res.status(501).json({ error: 'Re-run not implemented in this build' });
+    const inputAsset = await prisma.asset.findFirst({
+      where: { id: job.inputAssetId, tenantId: job.tenantId },
+      select: { url: true },
+    });
+    if (!inputAsset) {
+      return res.status(404).json({ error: 'Input asset not found' });
+    }
+
+    const buffer = await downloadInputAssetBuffer(inputAsset.url);
+    if (buffer.length > maxInputAssetBytes) {
+      return res.status(400).json({ error: 'Input asset too large' });
+    }
+
+    const mimeType = detectMimeType(buffer);
+    if (!mimeType) {
+      return res.status(400).json({ error: 'Unsupported input asset type' });
+    }
+
+    const currentUser = await prisma.user.findUnique({
+      where: { id: req.auth.userId ?? '' },
+      select: { id: true, email: true },
+    });
+    if (!currentUser) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const options = resolveRerunOptions(job.options);
+    const tenant = await ensureTenantReadyForUsage(req.auth.tenantId, options.videoCount);
+    const tenantAdmin = await prisma.user.findFirst({
+      where: { tenantId: tenant.id, role: 'tenant_admin' },
+      orderBy: { createdAt: 'asc' },
+      select: { email: true },
+    });
+    const tenantContactEmail = tenantAdmin?.email ?? currentUser.email;
+
+    const file = buildMulterFile(buffer, mimeType);
+    const result = await createJob({
+      tenant,
+      file,
+      options,
+      initiatingUserEmail: currentUser.email,
+      tenantContactEmail,
+    });
+
+    return res.json(result.outputs ? { outputs: result.outputs } : { job_id: result.jobId });
+  } catch (err) {
+    if (err instanceof TenantBlockedError) {
+      const status = err.code === 'plan_missing' ? 402 : 403;
+      return res.status(status).json({ code: err.code, message: err.message });
+    }
+    if (err instanceof WorkflowConfigurationError) {
+      return res.status(400).json({ code: err.code, message: err.message });
+    }
+    if (err instanceof QuotaExceededError) {
+      return res.status(402).json({
+        code: 'quota_exceeded',
+        message: 'Your monthly video limit is reached. Please upgrade your plan or wait until the next cycle.',
+      });
+    }
+    if (err instanceof BillingPeriodExpiredError) {
+      return res.status(402).json({
+        code: err.code,
+        message: 'Your billing period has ended. Please renew or update the plan before launching jobs.',
+      });
+    }
+    return next(err);
+  }
 });
 
 export default router;

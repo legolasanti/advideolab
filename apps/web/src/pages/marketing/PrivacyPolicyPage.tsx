@@ -25,7 +25,7 @@ const PrivacyPolicyPage = () => {
   const content = applyLegalTemplate(legal.privacyMarkdown, legal);
 
   return (
-    <div className="bg-slate-950 min-h-screen px-6 pt-28 pb-20">
+    <div className="bg-white min-h-screen px-6 pt-28 pb-20">
       <Seo
         title={`Privacy Policy – ${legal.company.name}`}
         description="Learn how we collect, use, and protect personal data when you use our Service."
@@ -33,16 +33,16 @@ const PrivacyPolicyPage = () => {
       />
 
       <div className="mx-auto max-w-3xl">
-        <header className="rounded-[28px] border border-white/10 bg-slate-900/60 p-8 backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">Legal</p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white md:text-5xl">Privacy Policy</h1>
-          <p className="mt-3 text-sm text-slate-300">
+        <header className="rounded-[28px] border border-slate-200 bg-slate-50 p-8 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.4em] text-[#2e90fa]">Legal</p>
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900 md:text-5xl">Privacy Policy</h1>
+          <p className="mt-3 text-sm text-slate-600">
             This policy explains how {legal.company.name} handles personal data. If you have questions, email{' '}
-            <span className="font-semibold text-white">{legal.company.contactEmail}</span>.
+            <span className="font-semibold text-[#2e90fa]">{legal.company.contactEmail}</span>.
           </p>
         </header>
 
-        <section className="mt-8 rounded-[28px] border border-white/10 bg-slate-900/40 p-8 backdrop-blur">
+        <section className="mt-8 rounded-[28px] border border-slate-200 bg-white p-8 shadow-sm">
           <MarkdownRenderer>{content}</MarkdownRenderer>
         </section>
       </div>

@@ -14,6 +14,11 @@ type TenantInfo = {
   monthlyVideoLimit?: number | null;
   billingCycleStart?: string | null;
   nextBillingDate?: string | null;
+  billingInterval?: 'monthly' | 'annual';
+  subscriptionPeriodStart?: string | null;
+  subscriptionPeriodEnd?: string | null;
+  subscriptionCancelAt?: string | null;
+  subscriptionCanceledAt?: string | null;
   defaultLogoPos?: string;
   defaultLogoScale?: number;
 };
@@ -28,6 +33,7 @@ type AuthContextValue = {
     email: string,
     password: string,
   ) => Promise<{ role: AuthContextValue['role']; tenant?: TenantInfo | null }>;
+  setSession: (session: { token: string; role?: AuthContextValue['role']; tenant?: TenantInfo | null }) => Promise<void>;
   refreshProfile: () => Promise<void>;
   logout: () => void;
   isOwner: boolean;
@@ -60,6 +66,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isOwner, setIsOwner] = useState(false);
 
   const logout = useCallback(() => {
+    api.post('/auth/logout', null, { skipAuthRefresh: true } as any).catch(() => undefined);
     localStorage.removeItem('token');
     setToken(null);
     setRole(null);
@@ -104,9 +111,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return data;
   };
 
+  const setSession = useCallback(
+    async ({ token: sessionToken, role: sessionRole, tenant: sessionTenant }: { token: string; role?: AuthContextValue['role']; tenant?: TenantInfo | null }) => {
+      localStorage.setItem('token', sessionToken);
+      setToken(sessionToken);
+      if (sessionRole) {
+        setRole(sessionRole);
+        setTenant(sessionTenant ?? undefined);
+        setIsOwner(sessionRole === 'owner_superadmin');
+        setLoading(false);
+      } else {
+        await refreshProfile();
+      }
+    },
+    [refreshProfile],
+  );
+
   return (
     <AuthContext.Provider
-      value={{ token, role, tenant, tenantStatus: tenant?.status, login, refreshProfile, logout, loading, isOwner }}
+      value={{ token, role, tenant, tenantStatus: tenant?.status, login, setSession, refreshProfile, logout, loading, isOwner }}
     >
       {children}
     </AuthContext.Provider>

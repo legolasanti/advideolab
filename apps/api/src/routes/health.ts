@@ -13,7 +13,10 @@ const emailTestLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
+  if (env.isProd && req.auth?.role !== 'owner_superadmin') {
+    return res.status(404).json({ error: 'Not found' });
+  }
   const checks = {
     database: false,
     timestamp: new Date().toISOString(),
@@ -49,7 +52,7 @@ router.get('/email-test', emailTestLimiter, requireAuth, requireOwner(), async (
   try {
     const ok = await sendEmailTest();
     if (!ok) {
-      console.error('[email][health] send failed', { to: status.notificationEmail });
+      console.error('[email][health] send failed');
       return res.status(500).json({ ok: false, error: 'Email send failed' });
     }
     return res.json({ ok: true });

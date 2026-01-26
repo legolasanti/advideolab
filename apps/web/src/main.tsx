@@ -6,6 +6,7 @@ import './index.css';
 import './styles/modern.css';
 import App from './App.tsx';
 import { AuthProvider } from './providers/AuthProvider.tsx';
+import ErrorBoundary from './components/ErrorBoundary.tsx';
 
 const queryClient = new QueryClient();
 
@@ -14,7 +15,9 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
-          <App />
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>

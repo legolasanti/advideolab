@@ -11,6 +11,7 @@ import { useJobs } from '../hooks/useJobs';
 import type { Job } from '../hooks/useJobs';
 import { formatPlanSummary } from '../lib/plans';
 import { LANGUAGES } from '../lib/languages';
+import Button from '../components/ui/Button';
 
 const vibes = [
   { label: 'Trusted guide', value: 'trusted_guide' },
@@ -94,7 +95,9 @@ const NewVideoPage = () => {
     isError: usageError,
     refetch: refetchUsage,
   } = useUsage(Boolean(token) && !isOwner);
-  const { jobs: recentJobs } = useJobs(1, 'completed', 20, !isOwner);
+  const jobsScope = isOwner ? 'owner' : 'tenant';
+  const jobsEnabled = Boolean(token) && (isOwner ? true : tenantStatus === 'active');
+  const { jobs: recentJobs, error: jobsError } = useJobs(1, 'completed', 20, jobsEnabled, jobsScope);
 
   const [outputs, setOutputs] = useState<OutputItem[]>([]);
   const [status, setStatus] = useState<'idle' | 'running' | 'done'>('idle');
@@ -103,6 +106,8 @@ const NewVideoPage = () => {
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [selectedFileName, setSelectedFileName] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
@@ -126,26 +131,30 @@ const NewVideoPage = () => {
     },
   });
 
-  const basePlanLimit = usage?.plan?.monthly_limit ?? null;
-  const planCode = usage?.plan?.code ?? null;
-  const isUnlimited = Boolean(planCode) && basePlanLimit === null;
+  const basePlanLimit = isOwner ? null : usage?.plan?.monthly_limit ?? null;
+  const planCode = isOwner ? 'owner' : usage?.plan?.code ?? null;
+  const isUnlimited = isOwner ? true : Boolean(planCode) && basePlanLimit === null;
   const bonusCredits = usage?.bonus_credits ?? 0;
   const planLimit = !isUnlimited && basePlanLimit !== null ? basePlanLimit + bonusCredits : null;
   const quotaRemaining =
     isUnlimited ? null : planLimit !== null ? Math.max(planLimit - (usage?.used ?? 0), 0) : null;
   const quotaDepleted = !isUnlimited && planLimit !== null && quotaRemaining !== null && quotaRemaining <= 0;
-  const tenantState = tenantStatus ?? 'active';
-  const renewalDateIso = usage?.next_billing_date ?? tenant?.nextBillingDate ?? null;
-  const renewalDate = renewalDateIso ? new Date(renewalDateIso) : null;
-  const renewalLabel = renewalDate ? renewalDate.toLocaleDateString() : null;
-  const billingExpired = renewalDate ? renewalDate.getTime() < Date.now() : false;
-  const creationBlockedReason =
-    tenantState === 'pending'
+  const tenantState = isOwner ? 'active' : tenantStatus ?? 'active';
+  const usageCycleEndIso = usage?.usage_cycle_end ?? usage?.next_billing_date ?? tenant?.nextBillingDate ?? null;
+  const usageCycleEnd = usageCycleEndIso ? new Date(usageCycleEndIso) : null;
+  const usageCycleLabel = usageCycleEnd ? usageCycleEnd.toLocaleDateString() : null;
+  const subscriptionEndIso = usage?.subscription_period_end ?? tenant?.subscriptionPeriodEnd ?? null;
+  const subscriptionEnd = subscriptionEndIso ? new Date(subscriptionEndIso) : null;
+  const subscriptionLabel = subscriptionEnd ? subscriptionEnd.toLocaleDateString() : null;
+  const billingExpired = subscriptionEnd ? subscriptionEnd.getTime() < Date.now() : false;
+  const creationBlockedReason = isOwner
+    ? null
+    : tenantState === 'pending'
       ? 'Your account is pending activation. We will notify you once you can launch jobs.'
       : tenantState === 'suspended'
       ? 'This tenant is suspended. Contact support to resolve billing or policy issues.'
       : billingExpired
-      ? `Your billing period ended${renewalLabel ? ` on ${renewalLabel}` : ''}. Renew or upgrade to continue.`
+      ? `Your billing period ended${subscriptionLabel ? ` on ${subscriptionLabel}` : ''}. Renew or upgrade to continue.`
       : !isUnlimited && planLimit === null
       ? 'No plan is attached to this workspace yet. Contact support to activate your plan.'
       : quotaDepleted
@@ -202,14 +211,6 @@ const NewVideoPage = () => {
     event.target.value = '';
   };
 
-  if (isOwner) {
-    return (
-      <section className="rounded-3xl border border-white/5 bg-slate-900/60 p-6 text-slate-200">
-        Owners cannot launch video jobs. Impersonate a tenant first.
-      </section>
-    );
-  }
-
   const onSubmit = async (values: FormValues) => {
     if (!selectedFile) {
       setError('Please upload a reference image first');
@@ -230,7 +231,9 @@ const NewVideoPage = () => {
     try {
       const uploadForm = new FormData();
       uploadForm.append('image', selectedFile);
-      const uploadResponse = await api.post('/ugc/uploads/hero', uploadForm, {
+      const uploadEndpoint = isOwner ? '/owner/ugc/uploads/hero' : '/ugc/uploads/hero';
+      const jobEndpoint = isOwner ? '/owner/ugc/jobs' : '/ugc/jobs';
+      const uploadResponse = await api.post(uploadEndpoint, uploadForm, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       const imageUrl = uploadResponse.data?.imageUrl as string | undefined;
@@ -247,10 +250,12 @@ const NewVideoPage = () => {
         ageRange: values.creatorAgeRange,
         platform: values.platformFocus,
         voiceProfile: values.voiceProfile,
+        vibe: values.vibe,
+        videoCount: values.videoCount,
         cta: values.callToAction === 'none' ? undefined : values.callToAction,
       };
 
-      const { data } = await api.post('/ugc/jobs', payload);
+      const { data } = await api.post(jobEndpoint, payload);
       reset();
       handleFileSelection(null);
       setStatus('done');
@@ -259,6 +264,11 @@ const NewVideoPage = () => {
       const fallback = 'Failed to create job';
       const responseData = axios.isAxiosError(err) ? err.response?.data ?? null : null;
       const code = responseData?.code ?? responseData?.error;
+      if (isOwner && code === 'sandbox_not_configured') {
+        setError('Owner sandbox tenant is not configured. Set it in Owner → Settings.');
+        setStatus('idle');
+        return;
+      }
       const codeMap: Record<string, string> = {
         tenant_pending: 'Your account is pending activation. Please wait for our team to unlock it.',
         tenant_suspended: 'Your account is suspended. Contact support to resolve billing or policy issues.',
@@ -294,6 +304,18 @@ const NewVideoPage = () => {
   const selectedCount = watch('videoCount');
   const selectedCallToAction = watch('callToAction');
   const pipelineStatusLabel = status === 'running' ? 'Rendering' : status === 'done' ? 'Completed' : 'Ready';
+  const confirmCount = pendingCount ?? selectedCount ?? 1;
+
+  const requestConfirmation = (values: FormValues) => {
+    setPendingCount(values.videoCount ?? 1);
+    setConfirmOpen(true);
+  };
+
+  const handleConfirm = async () => {
+    setConfirmOpen(false);
+    setPendingCount(null);
+    await handleSubmit(onSubmit)();
+  };
 
   return (
     <section className="space-y-8 text-slate-100">
@@ -315,13 +337,20 @@ const NewVideoPage = () => {
             {selectedFileName && <p className="mt-1 text-xs text-slate-400">Input: {selectedFileName}</p>}
           </div>
         </div>
+        {isOwner && (
+          <div className="mt-4 rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
+            Owner mode uses the sandbox tenant configured in Owner → Settings.
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 backdrop-blur">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Plan</p>
           <p className="mt-2 text-2xl font-semibold text-white">
-            {usage
+            {isOwner
+              ? 'Owner sandbox · Unlimited'
+              : usage
               ? isUnlimited
                 ? `${usage.plan?.name ?? tenant?.planName ?? usage.plan?.code ?? 'Plan'} · Unlimited videos/month`
                 : formatPlanSummary(
@@ -338,7 +367,10 @@ const NewVideoPage = () => {
               {planLimit} videos / month{bonusCredits ? ` (includes ${bonusCredits} bonus)` : ''}
             </p>
           ) : null}
-          <p className="text-xs text-slate-400">Renews on {renewalLabel ?? '—'}</p>
+          <p className="text-xs text-slate-400">Usage resets on {usageCycleLabel ?? '—'}</p>
+          <p className="text-xs text-slate-400">
+            Subscription renews on {subscriptionLabel ?? '—'}
+          </p>
         </div>
         <div className="rounded-3xl border border-white/5 bg-slate-900/70 p-5 backdrop-blur">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Used</p>
@@ -380,7 +412,7 @@ const NewVideoPage = () => {
         </div>
       )}
 
-      <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
+      <form className="space-y-5" onSubmit={handleSubmit(requestConfirmation)}>
         <div className="rounded-3xl border border-white/5 bg-slate-900/60 p-5 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -628,13 +660,14 @@ const NewVideoPage = () => {
                   <p className="mt-1 truncate text-[11px] text-slate-500">Input: {selectedFileName}</p>
                 )}
               </div>
-              <button
+              <Button
                 type="submit"
+                size="lg"
                 disabled={disabled}
-                className="mt-4 w-full rounded-2xl bg-indigo-500 py-3 text-sm font-semibold text-white transition hover:bg-indigo-400 disabled:opacity-50"
+                className="mt-4 w-full"
               >
                 {status === 'running' ? 'Synthesizing...' : 'Generate video'}
-              </button>
+              </Button>
               <p className="mt-2 text-xs text-slate-500">
                 {isUnlimited
                   ? 'Unlimited quota is enabled for this workspace.'
@@ -650,6 +683,35 @@ const NewVideoPage = () => {
           </div>
         </div>
       </form>
+
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-6">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/90 p-6 shadow-2xl backdrop-blur">
+            <h3 className="text-lg font-semibold text-white">Confirm credit spend</h3>
+            <p className="mt-2 text-sm text-slate-300">
+              You are about to generate <span className="font-semibold text-white">{confirmCount}</span>{' '}
+              {confirmCount === 1 ? 'video' : 'videos'} and spend{' '}
+              <span className="font-semibold text-white">{confirmCount}</span>{' '}
+              {confirmCount === 1 ? 'credit' : 'credits'}.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => {
+                  setConfirmOpen(false);
+                  setPendingCount(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button className="w-full" onClick={handleConfirm}>
+                Confirm
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {outputs.length > 0 && (
         <div className="rounded-3xl border border-white/5 bg-slate-900/60 p-6 backdrop-blur">
@@ -689,19 +751,25 @@ const NewVideoPage = () => {
           <p className="text-xs uppercase tracking-widest text-slate-400">Auto-pruned • newest first</p>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-          {recentClips.map((clip) => (
-            <div key={clip.id} className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40">
-              <video src={clip.url} className="aspect-[9/16] w-full object-cover" playsInline muted loop controls />
-              <div className="px-3 py-3 text-xs text-slate-300">
-                <p className="font-semibold text-white">{clip.platform ?? 'multi-platform'}</p>
-                <p className="text-slate-400">{clip.vibe ?? 'UGC'} • {clip.language ?? 'multi-lang'}</p>
-                <p className="mt-1 text-[10px] uppercase tracking-widest text-slate-500">
-                  {new Date(clip.createdAt).toLocaleString()}
-                </p>
-              </div>
-            </div>
-          ))}
-          {recentClips.length === 0 && <p className="text-sm text-slate-400">Run your first job to populate this rail.</p>}
+          {jobsError ? (
+            <p className="text-sm text-rose-300">Failed to load recent jobs.</p>
+          ) : (
+            <>
+              {recentClips.map((clip) => (
+                <div key={clip.id} className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40">
+                  <video src={clip.url} className="aspect-[9/16] w-full object-cover" playsInline muted loop controls />
+                  <div className="px-3 py-3 text-xs text-slate-300">
+                    <p className="font-semibold text-white">{clip.platform ?? 'multi-platform'}</p>
+                    <p className="text-slate-400">{clip.vibe ?? 'UGC'} • {clip.language ?? 'multi-lang'}</p>
+                    <p className="mt-1 text-[10px] uppercase tracking-widest text-slate-500">
+                      {new Date(clip.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {recentClips.length === 0 && <p className="text-sm text-slate-400">Run your first job to populate this rail.</p>}
+            </>
+          )}
         </div>
       </div>
     </section>

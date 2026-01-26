@@ -14,10 +14,12 @@ jest.mock('../src/lib/prisma', () => ({
 
 const baseTenant = {
   id: 'tenant_1',
+  planId: 'plan_starter',
   monthlyVideoLimit: 10,
   videosUsedThisCycle: 0,
   status: 'active',
   billingCycleStart: new Date(),
+  bonusCredits: 0,
   planDetails: {
     id: 'plan_starter',
     name: 'Starter',

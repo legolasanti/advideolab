@@ -1,16 +1,21 @@
 import axios from 'axios';
 import { JobStatus } from '@prisma/client';
 import crypto from 'crypto';
+import http from 'node:http';
+import https from 'node:https';
+import fs from 'node:fs';
 import { prisma } from '../lib/prisma';
-import { uploadBuffer } from '../lib/s3';
+import { uploadBuffer, uploadStream } from '../lib/s3';
 import { env } from '../config/env';
 import { decrypt } from '../lib/crypto';
+import { resolveSafeExternalTarget } from '../utils/safeUrl';
 import {
   ensureTenantReadyForUsage,
   incrementUsageOnSuccess,
   reserveTenantQuota,
   releaseReservedTenantQuota,
 } from './quota';
+import type { QuotaReservation } from './quota';
 import { sendJobCompletedEmail } from './email';
 
 export type UgcJobPayload = {
@@ -22,6 +27,8 @@ export type UgcJobPayload = {
   ageRange: string;
   platform?: string | null;
   voiceProfile?: string | null;
+  vibe?: string | null;
+  videoCount?: number | null;
   cta?: string | null;
 };
 
@@ -30,8 +37,9 @@ export const createUgcJob = async (params: {
   tenantName?: string | null;
   userId?: string;
   payload: UgcJobPayload;
+  skipQuota?: boolean;
 }) => {
-  const { tenantId, tenantName, userId, payload } = params;
+  const { tenantId, tenantName, userId, payload, skipQuota } = params;
 
   // Fetch global n8n configuration from SystemConfig
   const systemConfig = await prisma.systemConfig.findUnique({
@@ -41,8 +49,29 @@ export const createUgcJob = async (params: {
   if (!systemConfig?.n8nBaseUrl || !systemConfig?.n8nProcessPath) {
     throw new Error('n8n workflow not configured. Please contact the administrator to set up n8n integration.');
   }
+  if (!systemConfig.n8nProcessPath.startsWith('/')) {
+    throw new Error('n8n process path must start with "/"');
+  }
 
-  const webhookUrl = `${systemConfig.n8nBaseUrl}${systemConfig.n8nProcessPath}`;
+  const webhookUrl = new URL(systemConfig.n8nProcessPath, systemConfig.n8nBaseUrl).toString();
+  const allowlist = (env.n8nHostAllowlist ?? '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase().replace(/\.$/, ''))
+    .filter(Boolean);
+  const n8nTarget = await resolveSafeExternalTarget(webhookUrl, {
+    allowHttp: !env.isProd,
+    allowedHostnames: allowlist,
+    isProd: env.isProd,
+  });
+  const lookup = (
+    _hostname: string,
+    _opts: any,
+    cb: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
+  ) => {
+    cb(null, n8nTarget.address, n8nTarget.family);
+  };
+  const httpAgent = new http.Agent({ keepAlive: false, lookup });
+  const httpsAgent = new https.Agent({ keepAlive: false, lookup });
 
   // Fetch global API keys (encrypted JSON)
   let apiKeys: Record<string, string> = {};
@@ -54,14 +83,31 @@ export const createUgcJob = async (params: {
     }
   }
 
-  // Enforce quota before creating job
-  const tenant = await ensureTenantReadyForUsage(tenantId, 1);
+  const bypassQuota = Boolean(skipQuota);
+  if (bypassQuota) {
+    const exists = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+    if (!exists) {
+      throw new Error('Tenant not found');
+    }
+  }
+  const tenantForQuota = bypassQuota ? null : await ensureTenantReadyForUsage(tenantId, 1);
 
+  const callbackTokenBytes = crypto.randomBytes(32);
+  const callbackToken = callbackTokenBytes.toString('hex');
+  const callbackTokenHash = crypto.createHash('sha256').update(callbackTokenBytes).digest('hex');
+
+  let reservedVideos = 0;
   const { job } = await prisma.$transaction(async (trx) => {
-    const reservation = await reserveTenantQuota(trx, tenant, 1);
+    let quotaReservation: QuotaReservation | null = null;
+    if (tenantForQuota) {
+      quotaReservation = await reserveTenantQuota(trx, tenantForQuota, 1);
+      reservedVideos = quotaReservation.reservedVideos;
+    }
     const options = {
       ...payload,
-      quotaReservation: reservation.reservedVideos > 0 ? reservation : undefined,
+      callbackTokenHash,
+      ...(bypassQuota ? { skipQuota: true } : {}),
+      ...(quotaReservation && quotaReservation.reservedVideos > 0 ? { quotaReservation } : {}),
     };
 
     const job = await trx.job.create({
@@ -77,6 +123,8 @@ export const createUgcJob = async (params: {
         ageRange: payload.ageRange,
         platform: payload.platform ?? null,
         voiceProfile: payload.voiceProfile ?? null,
+        vibe: payload.vibe ?? null,
+        videoCount: payload.videoCount ?? 1,
         cta: payload.cta ?? null,
         imageUrl: payload.imageUrl,
       },
@@ -87,31 +135,9 @@ export const createUgcJob = async (params: {
 
   const callbackUrl = `${env.API_PUBLIC_URL.replace(/\/$/, '')}/api/ugc/jobs/${job.id}/upload-video`;
 
-  // Get callback token (prefer global config, fallback to env)
-  let callbackToken: string | null = null;
-  try {
-    callbackToken = systemConfig.n8nInternalToken ? decrypt(systemConfig.n8nInternalToken) : env.n8nInternalToken;
-  } catch (decryptErr) {
-    console.error('[ugc] Failed to decrypt internal token', decryptErr);
-  }
-  callbackToken = callbackToken?.trim() ?? null;
-
-  if (!callbackToken || callbackToken.length < 32) {
-    await prisma.job.update({
-      where: { id: job.id },
-      data: {
-        status: JobStatus.failed,
-        errorMessage: 'Internal token not configured',
-        finishedAt: new Date(),
-      },
-    });
-    await releaseReservedTenantQuota(tenantId, 1);
-    throw new Error('Internal token not configured');
-  }
-
   try {
     await axios.post(
-      webhookUrl,
+      n8nTarget.url.toString(),
       {
         jobId: job.id,
         tenantId,
@@ -125,6 +151,9 @@ export const createUgcJob = async (params: {
       {
         headers: { 'Content-Type': 'application/json' },
         timeout: 30_000,
+        httpAgent,
+        httpsAgent,
+        proxy: false,
       },
     );
 
@@ -153,7 +182,9 @@ export const createUgcJob = async (params: {
       .catch((updateErr) => {
         console.error('[ugc] Failed to mark job failed', updateErr);
       });
-    await releaseReservedTenantQuota(tenantId, 1);
+    if (reservedVideos > 0) {
+      await releaseReservedTenantQuota(tenantId, reservedVideos);
+    }
     throw err;
   }
 };
@@ -196,7 +227,21 @@ export const completeUgcJobFromUpload = async (params: {
   const mimeType = file.mimetype || 'video/mp4';
   const ext = extensionFromMime(mimeType);
   const key = `ugc/jobs/${jobId}/output-${crypto.randomBytes(3).toString('hex')}.${ext}`;
-  const uploadedUrl = await uploadBuffer(file.buffer, key, mimeType);
+  const uploadedUrl = await (async () => {
+    if (file.buffer && file.buffer.length > 0) {
+      return await uploadBuffer(file.buffer, key, mimeType);
+    }
+    if (file.path) {
+      const stream = fs.createReadStream(file.path);
+      try {
+        return await uploadStream(stream, key, mimeType, file.size);
+      } finally {
+        stream.destroy();
+        await fs.promises.unlink(file.path).catch(() => undefined);
+      }
+    }
+    throw new Error('missing_video_payload');
+  })();
 
   const normalizedDuration = durationSeconds != null ? normalizeDuration(durationSeconds) : undefined;
   const metaData = {
@@ -249,7 +294,13 @@ export const completeUgcJobFromUpload = async (params: {
       : null;
   })();
 
-  if (reservation == null) {
+  const skipQuota = (() => {
+    if (!job?.options || typeof job.options !== 'object' || Array.isArray(job.options)) return false;
+    const value = (job.options as Record<string, unknown>).skipQuota;
+    return value === true;
+  })();
+
+  if (reservation == null && !skipQuota) {
     // Backwards compatibility: jobs created before quota reservations existed.
     await incrementUsageOnSuccess(job.tenantId, 1);
   }

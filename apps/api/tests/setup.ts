@@ -10,7 +10,12 @@ process.env.PUBLIC_CDN_BASE = 'https://cdn.example.com';
 process.env.API_PUBLIC_URL = 'https://api.example.com';
 process.env.USE_CLOUDINARY = 'false';
 process.env.N8N_SYNC = 'false';
-process.env.ENCRYPTION_KEY = '12345678901234567890123456789012';
+delete process.env.N8N_WEBHOOK_URL;
+delete process.env.N8N_INTERNAL_TOKEN;
+delete process.env.N8N_HOST_ALLOWLIST;
+delete process.env.N8N_TRUSTED_HOST_ALLOWLIST;
+delete process.env.COMPOSE_INTERNAL_TOKEN;
+process.env.ENCRYPTION_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
 process.env.RATE_LIMIT_WINDOW_MS = '60000';
 process.env.RATE_LIMIT_MAX = '100';
 

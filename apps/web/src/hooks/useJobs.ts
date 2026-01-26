@@ -46,13 +46,15 @@ export const fetchJobs = async (
   page = 1,
   status?: string,
   limit?: number,
+  scope: 'tenant' | 'owner' = 'tenant',
 ): Promise<JobsResponse> => {
   try {
     const params: Record<string, unknown> = { page };
     if (status) params.status = status;
     if (limit) params.limit = limit;
 
-    const response = await api.get<ApiJobsResponse>('/api/ugc/jobs', { params, baseURL: '' });
+    const endpoint = scope === 'owner' ? '/api/owner/ugc/jobs' : '/api/ugc/jobs';
+    const response = await api.get<ApiJobsResponse>(endpoint, { params, baseURL: '' });
     const apiResponse = response.data;
 
     return {
@@ -67,10 +69,16 @@ export const fetchJobs = async (
   }
 };
 
-export const useJobs = (page = 1, status?: string, limit?: number, enabled = true) => {
+export const useJobs = (
+  page = 1,
+  status?: string,
+  limit?: number,
+  enabled = true,
+  scope: 'tenant' | 'owner' = 'tenant',
+) => {
   const { data, error, isLoading } = useQuery<JobsResponse, Error>({
-    queryKey: ['jobs', page, status, limit],
-    queryFn: () => fetchJobs(page, status, limit),
+    queryKey: ['jobs', scope, page, status, limit],
+    queryFn: () => fetchJobs(page, status, limit, scope),
     enabled,
     refetchInterval: (query) =>
       query.state.data?.jobs.some((job: Job) => job.status === 'pending' || job.status === 'processing') ? 8000 : false,

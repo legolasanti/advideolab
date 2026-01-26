@@ -1,7 +1,8 @@
-import { Router } from 'express';
+import { Router, type ErrorRequestHandler, type Request, type Response } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import multer from 'multer';
+import os from 'node:os';
 import { requireAuth, requireTenantRole } from '../middleware/auth';
 import { upload } from '../middleware/upload';
 import { prisma } from '../lib/prisma';
@@ -14,8 +15,34 @@ import { sanitizeImage } from '../services/imageProcessing';
 
 const router = Router();
 
+const publicCdn = (() => {
+  try {
+    const base = new URL(env.PUBLIC_CDN_BASE);
+    const basePath = base.pathname.replace(/\/$/, '');
+    return { origin: base.origin, basePath };
+  } catch (_err) {
+    return null;
+  }
+})();
+
+const isPublicCdnAssetUrl = (value: string) => {
+  if (!publicCdn) return false;
+  try {
+    const parsed = new URL(value);
+    if (parsed.origin !== publicCdn.origin) return false;
+    const pathname = parsed.pathname.replace(/\/$/, '');
+    return pathname === publicCdn.basePath || pathname.startsWith(`${publicCdn.basePath}/`);
+  } catch (_err) {
+    return false;
+  }
+};
+
 const createJobSchema = z.object({
-  imageUrl: z.string().url(),
+  imageUrl: z
+    .string()
+    .url()
+    .max(2048)
+    .refine((value) => isPublicCdnAssetUrl(value), { message: 'imageUrl must be an uploaded asset URL' }),
   productName: z.string().min(1).max(256),
   prompt: z.string().max(2000).optional().nullable(),
   language: z.string().min(2).max(12),
@@ -35,11 +62,39 @@ const statusMap: Record<string, string> = {
 const normalizeStatus = (status: string) => statusMap[status] ?? status;
 
 const largeUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+    filename: (_req, file, cb) => {
+      const safeName = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+      cb(null, `${safeName}-${file.fieldname}`);
+    },
+  }),
   limits: {
     fileSize: 200 * 1024 * 1024,
   },
+  fileFilter: (_req, file, cb) => {
+    const allowed = new Set([
+      'video/mp4',
+      'video/webm',
+      'video/quicktime',
+      'application/octet-stream',
+    ]);
+    if (!allowed.has(file.mimetype)) {
+      return cb(new Error('unsupported_file_type'));
+    }
+    cb(null, true);
+  },
 });
+
+const handleLargeUploadErrors: ErrorRequestHandler = (err, _req, res, next) => {
+  if (String(err?.message ?? '') === 'unsupported_file_type') {
+    return res.status(400).json({ error: 'unsupported_file_type' });
+  }
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ error: 'upload_failed', code: err.code });
+  }
+  return next(err);
+};
 
 const resolveVideoUrl = (job: any) => {
   if (job.videoUrl) return job.videoUrl;
@@ -61,6 +116,18 @@ const redactCallbackToken = (job: any) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { callbackToken: _callbackToken, callbackTokenHash: _callbackTokenHash, ...rest } = options as Record<string, unknown>;
   return { ...job, options: rest };
+};
+
+const parseCallbackToken = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (!/^[a-f0-9]{64}$/i.test(normalized)) return null;
+  return Buffer.from(normalized, 'hex');
+};
+
+const callbackTokenHashFromOptions = (options: unknown) => {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) return null;
+  return parseCallbackToken((options as { callbackTokenHash?: unknown }).callbackTokenHash);
 };
 
 router.post(
@@ -197,39 +264,58 @@ router.get('/jobs/:jobId', requireAuth, requireTenantRole(['tenant_admin', 'user
 router.post(
   '/jobs/:jobId/upload-video',
   largeUpload.single('video'),
-  async (req, res) => {
-    const providedToken = req.header('x-internal-api-token')?.trim();
-    if (!providedToken || providedToken.length < 32) {
-      console.error('[ugc] Invalid internal token on callback');
-      return res.status(401).json({ error: 'unauthorized' });
-    }
-
-    const config = await prisma.systemConfig.findUnique({
-      where: { id: 'singleton' },
-      select: { n8nInternalToken: true },
+  async (req: Request, res: Response) => {
+    const job = await prisma.job.findUnique({
+      where: { id: req.params.jobId },
+      select: { id: true, options: true },
     });
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
 
-    let expectedToken: string | null = env.n8nInternalToken?.trim() ?? null;
-    if (config?.n8nInternalToken) {
-      try {
-        expectedToken = decrypt(config.n8nInternalToken).trim();
-      } catch (err) {
-        console.error('[ugc] Failed to decrypt internal token', err);
-        expectedToken = null;
+    const expectedTokenHash = callbackTokenHashFromOptions(job.options);
+    const providedToken = (req.header('x-callback-token') ?? req.header('x-internal-api-token'))?.trim();
+
+    if (expectedTokenHash) {
+      const providedBytes = parseCallbackToken(providedToken);
+      if (!providedBytes) {
+        return res.status(404).json({ error: 'Job not found' });
       }
-    }
+      const providedHash = crypto.createHash('sha256').update(providedBytes).digest();
+      const authorized = crypto.timingSafeEqual(providedHash, expectedTokenHash);
+      if (!authorized) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
+    } else {
+      // Backwards compatibility: jobs created before per-job callback tokens existed.
+      if (!providedToken || providedToken.length < 32) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
 
-    if (!expectedToken || expectedToken.length < 32) {
-      console.error('[ugc] Internal token not configured');
-      return res.status(401).json({ error: 'unauthorized' });
-    }
+      const config = await prisma.systemConfig.findUnique({
+        where: { id: 'singleton' },
+        select: { n8nInternalToken: true },
+      });
 
-    const providedHash = crypto.createHash('sha256').update(providedToken).digest();
-    const expectedHash = crypto.createHash('sha256').update(expectedToken).digest();
-    const authorized = crypto.timingSafeEqual(providedHash, expectedHash);
-    if (!authorized) {
-      console.error('[ugc] Invalid internal token on callback');
-      return res.status(401).json({ error: 'unauthorized' });
+      let expectedToken: string | null = env.n8nInternalToken?.trim() ?? null;
+      if (config?.n8nInternalToken) {
+        try {
+          expectedToken = decrypt(config.n8nInternalToken).trim();
+        } catch (_err) {
+          expectedToken = null;
+        }
+      }
+
+      if (!expectedToken || expectedToken.length < 32) {
+        return res.status(503).json({ error: 'internal_token_not_configured' });
+      }
+
+      const providedHash = crypto.createHash('sha256').update(providedToken).digest();
+      const expectedHash = crypto.createHash('sha256').update(expectedToken).digest();
+      const authorized = crypto.timingSafeEqual(providedHash, expectedHash);
+      if (!authorized) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
     }
 
     if (!req.file) {
@@ -266,6 +352,7 @@ router.post(
       res.status(500).json({ error: 'callback_failed' });
     }
   },
+  handleLargeUploadErrors,
 );
 
 export default router;

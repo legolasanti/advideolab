@@ -1,12 +1,23 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { getCmsSection } from '../services/cms';
 import { getEmailStatus, sendOwnerContactNotification } from '../services/email';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
+import { trackMarketingEvent } from '../services/marketing';
+import { MarketingEventType } from '@prisma/client';
 
 const router = Router();
+
+const contactLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  max: env.isProd ? 10 : 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? 'unknown'),
+});
 
 const contactSchema = z.object({
   name: z.string().min(2),
@@ -16,17 +27,71 @@ const contactSchema = z.object({
   source: z.string().min(1).optional(),
 });
 
+const analyticsEventSchema = z.object({
+  eventType: z.enum(
+    [
+      MarketingEventType.visit,
+      MarketingEventType.signup_started,
+      MarketingEventType.signup_completed,
+      MarketingEventType.checkout_started,
+      MarketingEventType.payment_completed,
+    ] as const,
+  ),
+  sessionId: z.string().min(8).max(128),
+  utmSource: z.string().max(128).optional().nullable(),
+  utmMedium: z.string().max(128).optional().nullable(),
+  utmCampaign: z.string().max(128).optional().nullable(),
+  referrer: z.string().max(2048).optional().nullable(),
+  landingPage: z.string().max(2048).optional().nullable(),
+});
+
 router.get('/cms/:section', async (req, res) => {
   const data = await getCmsSection(req.params.section);
   res.json(data);
 });
 
-router.post('/contact', async (req, res) => {
+router.get('/system-config', async (_req, res) => {
+  const config = await prisma.systemConfig.upsert({
+    where: { id: 'singleton' },
+    update: {},
+    create: { id: 'singleton' },
+  });
+  const googleEnabled = Boolean(config.googleOAuthClientId && config.googleOAuthClientSecretEncrypted);
+  res.json({
+    customHeadCode: config.customHeadCode ?? null,
+    customBodyStart: config.customBodyStart ?? null,
+    customBodyEnd: config.customBodyEnd ?? null,
+    googleOAuthClientId: googleEnabled ? config.googleOAuthClientId : null,
+  });
+});
+
+router.post('/analytics/event', async (req, res) => {
+  try {
+    const payload = analyticsEventSchema.parse(req.body);
+    await trackMarketingEvent({
+      eventType: payload.eventType,
+      sessionId: payload.sessionId,
+      utmSource: payload.utmSource ?? null,
+      utmMedium: payload.utmMedium ?? null,
+      utmCampaign: payload.utmCampaign ?? null,
+      referrer: payload.referrer ?? null,
+      landingPage: payload.landingPage ?? null,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ ok: false, issues: err.issues });
+    }
+    console.error('[analytics] event capture failed', err);
+  }
+  return res.json({ ok: true });
+});
+
+router.post('/contact', contactLimiter, async (req, res) => {
   try {
     const payload = contactSchema.parse(req.body);
     const source = payload.source ?? '/contact';
     const { notificationEmail: target } = await getEmailStatus();
-    console.info('[contact] inbound marketing request', { target, payload });
+    console.info('[contact] inbound marketing request', { source, configured: Boolean(target) });
     await sendOwnerContactNotification({
       name: payload.name,
       email: payload.email,
@@ -74,6 +139,15 @@ router.get('/blog/:slug', async (req, res) => {
   res.json(post);
 });
 
+// Showcase Videos (for landing page)
+router.get('/showcase-videos', async (_req, res) => {
+  const videos = await prisma.showcaseVideo.findMany({
+    where: { isActive: true },
+    orderBy: { sortOrder: 'asc' },
+  });
+  res.json(videos);
+});
+
 // Coupon Validation Endpoint
 router.post('/coupons/validate', async (req, res) => {
   const { code } = z.object({ code: z.string() }).parse(req.body);
@@ -84,6 +158,9 @@ router.post('/coupons/validate', async (req, res) => {
   }
   if (coupon.expiresAt && coupon.expiresAt < new Date()) {
     return res.status(400).json({ valid: false, error: 'Coupon expired' });
+  }
+  if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) {
+    return res.status(400).json({ valid: false, error: 'Coupon usage limit reached' });
   }
 
   res.json({

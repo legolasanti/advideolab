@@ -5,9 +5,11 @@ services:
     image: postgres:16
     restart: always
     environment:
-      POSTGRES_DB: app
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?err}
+    ports:
+      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
@@ -15,8 +17,8 @@ services:
     image: minio/minio:RELEASE.2024-09-09T16-59-28Z
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio123
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD?err}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -28,6 +30,7 @@ services:
     restart: always
     environment:
       PORT: 7000
+      COMPOSE_INTERNAL_TOKEN: ${COMPOSE_INTERNAL_TOKEN?err}
     expose:
       - "7000"
 
@@ -36,21 +39,6 @@ services:
       context: ./apps/api
     env_file:
       - .env
-    environment:
-      NODE_ENV: production
-      PORT: 4000
-      DATABASE_URL: postgresql://app:app@db:5432/app?schema=public
-      JWT_SECRET: supersecretjwtkeysupersecretjwtkey
-      S3_ENDPOINT: http://minio:9000
-      S3_BUCKET: assets
-      S3_ACCESS_KEY: minio
-      S3_SECRET_KEY: minio123
-      PUBLIC_CDN_BASE: http://minio:9000/assets
-      API_PUBLIC_URL: https://api.example.com
-      COMPOSE_SERVICE_URL: http://compose:7000/compose
-      USE_CLOUDINARY: 'false'
-      N8N_SYNC: 'false'
-      ENCRYPTION_KEY: '12345678901234567890123456789012'
     depends_on:
       - db
       - minio
