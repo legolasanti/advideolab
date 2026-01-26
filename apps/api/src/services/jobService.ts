@@ -237,9 +237,13 @@ export const createJob = async (params: {
 
     const lookup = (
       _hostname: string,
-      _opts: any,
-      cb: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
+      opts: { all?: boolean } | undefined,
+      cb: (err: NodeJS.ErrnoException | null, address: any, family?: number) => void,
     ) => {
+      if (opts?.all) {
+        cb(null, [{ address: n8nTarget.address, family: n8nTarget.family }]);
+        return;
+      }
       cb(null, n8nTarget.address, n8nTarget.family);
     };
     const httpAgent = new http.Agent({ keepAlive: false, lookup });
@@ -414,9 +418,13 @@ const downloadExternalAsset = async (url: string): Promise<DownloadedExternalAss
   });
   const lookup = (
     _hostname: string,
-    _opts: any,
-    cb: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
+    opts: { all?: boolean } | undefined,
+    cb: (err: NodeJS.ErrnoException | null, address: any, family?: number) => void,
   ) => {
+    if (opts?.all) {
+      cb(null, [{ address: target.address, family: target.family }]);
+      return;
+    }
     cb(null, target.address, target.family);
   };
   const httpAgent = new http.Agent({ keepAlive: false, lookup });
