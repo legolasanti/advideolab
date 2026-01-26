@@ -1,0 +1,858 @@
+{
+  "name": "Ny-Megasalg UGC Video Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Megasalg - UGC Video",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Product",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Product Name",
+              "placeholder": "product name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Gender",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Female"
+                  },
+                  {
+                    "option": "Male"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Age Range",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "18-25"
+                  },
+                  {
+                    "option": "25-35"
+                  },
+                  {
+                    "option": "35-45"
+                  },
+                  {
+                    "option": "45-55"
+                  },
+                  {
+                    "option": "55-65"
+                  },
+                  {
+                    "option": "65+"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Language",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Norwegian (Bokmål)"
+                  },
+                  {
+                    "option": "American English"
+                  },
+                  {
+                    "option": "British English"
+                  },
+                  {
+                    "option": "Swedish"
+                  },
+                  {
+                    "option": "Danish"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Promt",
+              "fieldType": "textarea",
+              "placeholder": "Optional extra instructions for the script (tone, setting, angle, etc.)"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -352,
+        -656
+      ],
+      "id": "482cc484-6ae5-402e-a5fa-3895060975f4",
+      "name": "form_trigger",
+      "webhookId": "a5b52267-8308-4afe-a51e-80cbb43533a3"
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "text": "=**// ROLE & GOAL //**\nYou are an expert casting director and consumer psychologist. Your task is to analyse the provided product image, product name, and the written prompt from the marketer, and then build a SHORT, PRACTICAL persona profile for a real consumer who will authentically promote the product in a 12-second UGC selfie video.\n\nYou are also given a short written “Prompt” from the marketer that describes the desired angle, hook, use-case or scenario for the video. Use this Prompt only as inspiration to fine-tune the persona’s situation, tone and lifestyle so that someone with this brief would realistically record the video – but do NOT write any ad scripts, hooks, CTAs, or shot lists.\n\nThe persona MUST:\n- Match this selected gender from the form: **{{ $node[\"form_trigger\"].json[\"Gender\"] || \"Female\" }}**\n- Fit inside this selected age range: **{{ $node[\"form_trigger\"].json[\"Age Range\"] || \"25-35\" }}** (you may pick a specific age inside the range)\n- Speak this language in the video: **{{ $node[\"form_trigger\"].json[\"Language\"] || \"Norwegian (Bokmål)\" }}**\n- Feel like a believable, modern Scandinavian consumer (not an influencer stereotype)\n\nDo NOT write ad scripts, hooks, CTAs or shot lists here. Output ONLY the persona profile.\n\n**// INPUT //**\nProduct Name (from form): `{{ $node[\"form_trigger\"].json[\"Product Name\"] }}`\nProduct Image: A current product image is attached to this same message as binary data.\nPrompt from form (may be empty): `{{ $node[\"form_trigger\"].json[\"Prompt\"] || \"\" }}`\n\n**// OUTPUT FORMAT (STRICT) //**\nWrite the profile in fluent English (internal use only). Keep it concise but concrete (max ~250–300 words).\n\nUse exactly these sections and bullet points:\n\n**I. Core Identity**\n- **Name:** (realistic first + last name for the selected language/culture)\n- **Age:** (a specific age that fits inside the selected age range)\n- **Gender:** (must match the form: {{ $node[\"form_trigger\"].json[\"Gender\"] || \"Female\" }})\n- **Location:** (short description of where they live – city/area that fits Scandinavian context)\n- **Occupation:** (plausible job that fits their age, language and lifestyle)\n\n**II. Appearance & On-Camera Style**\n- **General look:** Clothing style, vibe, how they usually appear on camera (selfie on phone)\n- **Energy level:** How they speak on video (chill, excited, calm, matter-of-fact, etc.)\n- **On-camera strengths:** Why they feel natural and trustworthy on camera for this product category\n\n**III. Lifestyle & Product Fit**\n- **Daily routines:** 3–4 bullet points about their day that make this product relevant\n- **Values & preferences:** What they care about when choosing products like this (quality, price, design, etc.)\n- **Why this product fits them:** 2–3 short bullets explaining why they are a perfect match to show this product.\n\nKeep everything realistic, grounded and human. The goal is to give the script-writer a clear mental picture of ONE real person who could record a selfie video about this product.",
+        "inputType": "base64",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        448,
+        -656
+      ],
+      "id": "a4191aa3-3ef5-4a89-81d8-f31bd1c5784a",
+      "name": "analyze_product",
+      "credentials": {
+        "openAiApi": {
+          "id": "IKbcP0Mu32ctgI9G",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "796c02ea-66be-484c-a333-be4fffbe17db",
+              "name": "prompt",
+              "value": "={{ $('form_trigger').item.json.Promt }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        736,
+        -656
+      ],
+      "id": "68975e1f-78e8-4418-8966-769b2c44da8b",
+      "name": "set_model_details"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2c2bbb98-c6e4-4339-971a-2d6487f6bd29",
+              "name": "prompt",
+              "value": "=Master Prompt: Raw 12-Second UGC Video Scripts (Adaptive & Updated Edition)\n\nYou are an expert at creating authentic UGC video scripts that feel like someone grabbed their phone and recorded a quick, messy, real 12-second video. The script must be built using ALL provided inputs:\n\nMANDATORY INPUTS:\n- Product Name (from form): {{ $node[\"form_trigger\"].json[\"Product Name\"] }}\n- Product Image (attached)\n- Creator Profile (persona): {{ $node['set_model_details'].json.prompt }}\n- Marketer Prompt (custom creative angle/instructions): {{ $node[\"form_trigger\"].json[\"Prompt\"] || \"\" }}\n- Gender: {{ $node[\"form_trigger\"].json[\"Gender\"] || \"Female\" }}\n- Age Range: {{ $node[\"form_trigger\"].json[\"Age Range\"] || \"25-35\" }}\n- Language: {{ $node[\"form_trigger\"].json[\"Language\"] || \"Norwegian (Bokmål)\" }}\n\nYour goal:\nCreate exactly TWO natural, unscripted-feeling 12-second UGC video scripts using:\n- The product image\n- The product name\n- The persona profile\n- The marketer's custom prompt (very important!)\n- The demographic fields (gender, age range, language)\n\nThe output MUST reflect the marketer’s creative prompt.  \nThis is where the direction, tone, use-case or storyline comes from.\n\nYou MUST NOT:\n- Invent features not visible in the product image\n- Add marketing jargon or corporate copy\n- Ignore the marketer’s prompt\n- Ignore the persona\n- Add perfect filming or perfect acting\n\n---\n\nRAW IPHONE AESTHETIC REQUIREMENTS:\n(keep exactly as you had before)\n[... aynı “What we want”, “What we avoid”, “12-second structure”, “Shot-by-shot breakdown”, “Authenticity guidelines” bölümleri burada aynen korunacak ...]\n\n---\n\nFINAL OUTPUT FORMAT (STRICT):\n\nOutput: 2 Natural Scripts  \nTwo different authentic approaches:\n\nSCRIPT [#]: [3–5 word simple angle]\nThe energy: [one line describing energy matching persona + marketer prompt]\n\nWhat they say to camera (timestamps):\n[0:00–0:02] \"Opening line\"\n[0:02–0:09] \"Main talking section\"\n[0:09–0:12] \"Closing thought, natural end\"\n\nShot-by-shot breakdown:\n[This section stays the same as your original prompt]\n\n---\n\nCRITICAL:\n- Each script MUST align with Marketer Prompt → {{ $node[\"form_trigger\"].json[\"Prompt\"] || \"\" }}\n- Each script MUST fit the persona from {{ $node['set_model_details'].json.prompt }}\n- Each script MUST reference the product image naturally\n- Each script MUST match gender, age range and language from form\n- ABSOLUTELY NO INVENTED BRAND DETAILS\n- NO TEXT OVERLAYS\n- NO POLISH\n- 100% real human energy",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -336,
+        -432
+      ],
+      "id": "0a09d3ac-05b8-4298-9514-fb2dbab445c4",
+      "name": "set_build_video_prompts"
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "binaryPropertyName": "Product",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -656
+      ],
+      "id": "46839a2a-9ff4-4070-9c22-67fa396ec920",
+      "name": "convert_product_to_base64"
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        176,
+        -656
+      ],
+      "id": "1dc929ff-a12d-4510-a0a2-77f812898357",
+      "name": "convert_product_to_image"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You will be given text that contains many separate prompts / scripts for a UGC short form video. I want you to extract these into an array of strings where each item extracted is the FULL prompt/script. The prompts should remain exactly as they were provided.\n\n---\n{{ $json.candidates[0].content.parts[0].text }}",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        320,
+        -432
+      ],
+      "id": "aabb0745-ce2b-4fcd-869f-c400fda089ba",
+      "name": "extract_prompts"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"title\": \"Extracted Prompts\",\n  \"description\": \"A schema designed to hold a list of individual prompts that have been extracted from a larger body of text. Use this to format the extracted prompts.\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"prompts\": {\n      \"type\": \"array\",\n      \"description\": \"An array where each element is a single, distinct prompt string that was extracted from the user's input.\",\n      \"items\": {\n        \"type\": \"string\",\n        \"description\": \"A single prompt statement.\"\n      }\n    }\n  },\n  \"required\": [\n    \"prompts\"\n  ]\n}",
+        "autoFix": true
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        320,
+        -192
+      ],
+      "id": "f5230259-7dd3-40b5-90ac-d689574e5e03",
+      "name": "prompts-parser"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "output.prompts",
+        "options": {
+          "destinationFieldName": "prompt"
+        }
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        736,
+        -432
+      ],
+      "id": "67a53c20-d21c-4b69-8c94-b48403a8b659",
+      "name": "split_prompts"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -336,
+        -192
+      ],
+      "id": "7fbd7ff2-5c58-4acf-84ca-d89c9c0cb54a",
+      "name": "iterate_prompts"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/videos",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "prompt",
+              "value": "={{ $node['iterate_prompts'].json.prompt }}"
+            },
+            {
+              "name": "model",
+              "value": "sora-2"
+            },
+            {
+              "name": "seconds",
+              "value": "12"
+            },
+            {
+              "name": "size",
+              "value": "720x1280"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "input_reference",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -336,
+        224
+      ],
+      "id": "b6a9077a-4c82-4e1a-bfa0-6c2b3e7a3cc1",
+      "name": "generate_video",
+      "credentials": {
+        "openAiApi": {
+          "id": "GXSpPGHsZaBUZDUj",
+          "name": "OpenAi n8n UGC"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.openai.com/v1/videos/{{ $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        160,
+        224
+      ],
+      "id": "a64d428c-91ad-40c3-9a00-541458e7602d",
+      "name": "get_video_status",
+      "credentials": {
+        "openAiApi": {
+          "id": "GXSpPGHsZaBUZDUj",
+          "name": "OpenAi n8n UGC"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.openai.com/v1/videos/{{ $json.id }}/content",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        576,
+        192
+      ],
+      "id": "b6698c41-3cbe-47e7-a79b-94184af50657",
+      "name": "get_video",
+      "credentials": {
+        "openAiApi": {
+          "id": "GXSpPGHsZaBUZDUj",
+          "name": "OpenAi n8n UGC"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6ce95513-f1dd-4105-ab55-de5d073cb0c3",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        384,
+        176
+      ],
+      "id": "7fb261a0-3743-4d7f-9826-466229e310d6",
+      "name": "check_status"
+    },
+    {
+      "parameters": {
+        "amount": 20
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -96,
+        224
+      ],
+      "id": "2bf5e7ac-82b2-4bbe-8cc7-9e62bf1dcf1e",
+      "name": "delay",
+      "webhookId": "2cb76b64-6acc-4502-8b1b-3c46cf271e55"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    contents: [\n      {\n        parts: [\n          {\n            text:\n\"Take the design, layout, and style of [Image A] exactly as it is, and seamlessly adapt it into the aspect ratio of [Image B]. Maintain all the visual elements, proportions, and composition of [Image A], but expand, crop, or extend the background naturally so that the final image perfectly matches the aspect ratio and dimensions of [Image B]. Do not distort or stretch any elements—use intelligent background extension, framing, or subtle composition adjustments to preserve the original design integrity while filling the new canvas size.\"\n          },\n          {\n            inline_data: {\n              mime_type: ($node['form_trigger'].json['Product']?.mimetype) || \"image/jpeg\",\n              data: $node['convert_product_to_base64'].json['data']\n            }\n          }\n        ]\n      }\n    ]\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -96,
+        -48
+      ],
+      "id": "fddbf9fc-43c5-4d2e-86f2-ec9ddfaf1dab",
+      "name": "generate_frame",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "4zAWwhL2D3IpgMH1",
+          "name": "Google gemini"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "524da01b-f8b9-4c2c-9e28-319455903e4d",
+              "name": "=result",
+              "value": "={{ $json.candidates[0].content.parts.filter(item => item.inlineData).first().inlineData.data }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        160,
+        -48
+      ],
+      "id": "5f5d50f8-40ae-44b1-95c0-ff7f0a652ebf",
+      "name": "set_frame_result"
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "result",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        -48
+      ],
+      "id": "58815ee4-37fa-4d75-8419-c503e012fc5c",
+      "name": "get_frame_image"
+    },
+    {
+      "parameters": {
+        "operation": "resize",
+        "width": 720,
+        "height": 1280,
+        "resizeOption": "ignoreAspectRatio",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.editImage",
+      "typeVersion": 1,
+      "position": [
+        736,
+        -48
+      ],
+      "id": "cf254ec8-79b1-4691-9aec-b8036f3394c6",
+      "name": "resize_image"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        320,
+        464
+      ],
+      "id": "32f9a906-6e86-46af-9b5e-8f0849c19da5",
+      "name": "gemini-2.5-pro",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "5BqOayIPRJW7q4Gr",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "={{ $('form_trigger').item.json['Product Name'] }} - Video {{ $runIndex + 1 }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "https://drive.google.com/drive/u/0/folders/1SZYfHpTU_QTVGt1rMqCAsyAf2l0hOiOp",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        736,
+        192
+      ],
+      "id": "35c77bf4-f6f9-4860-be69-77e1239628fb",
+      "name": "upload_video",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "zhtlw5mWM3YPnPA7",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": $('set_build_video_prompts').item.json.prompt\n        },\n        {\n          \"inline_data\": {\n            \"mime_type\": $('form_trigger').item.json.Product.mimetype,\n            \"data\": $('convert_product_to_base64').item.json.data\n          }\n        }\n      ]\n    }\n  ]\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -96,
+        -432
+      ],
+      "id": "96ca1592-0e91-40db-9ad5-09b471ab7174",
+      "name": "generate_ad_prompts",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "4zAWwhL2D3IpgMH1",
+          "name": "Google gemini"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 1344,
+        "width": 1360,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -432,
+        -768
+      ],
+      "typeVersion": 1,
+      "id": "faedd7ac-3c00-4306-8f45-fb462722bd1c",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "form_trigger": {
+      "main": [
+        [
+          {
+            "node": "convert_product_to_base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "analyze_product": {
+      "main": [
+        [
+          {
+            "node": "set_model_details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_model_details": {
+      "main": [
+        [
+          {
+            "node": "set_build_video_prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "convert_product_to_base64": {
+      "main": [
+        [
+          {
+            "node": "convert_product_to_image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "convert_product_to_image": {
+      "main": [
+        [
+          {
+            "node": "analyze_product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_build_video_prompts": {
+      "main": [
+        [
+          {
+            "node": "generate_ad_prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prompts-parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "extract_prompts",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract_prompts": {
+      "main": [
+        [
+          {
+            "node": "split_prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split_prompts": {
+      "main": [
+        [
+          {
+            "node": "iterate_prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "iterate_prompts": {
+      "main": [
+        [],
+        [
+          {
+            "node": "generate_frame",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "generate_video": {
+      "main": [
+        [
+          {
+            "node": "delay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_video_status": {
+      "main": [
+        [
+          {
+            "node": "check_status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_video": {
+      "main": [
+        [
+          {
+            "node": "upload_video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_status": {
+      "main": [
+        [
+          {
+            "node": "get_video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "delay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "delay": {
+      "main": [
+        [
+          {
+            "node": "get_video_status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "generate_frame": {
+      "main": [
+        [
+          {
+            "node": "set_frame_result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_frame_result": {
+      "main": [
+        [
+          {
+            "node": "get_frame_image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_frame_image": {
+      "main": [
+        [
+          {
+            "node": "resize_image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "resize_image": {
+      "main": [
+        [
+          {
+            "node": "generate_video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gemini-2.5-pro": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "extract_prompts",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "prompts-parser",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "upload_video": {
+      "main": [
+        [
+          {
+            "node": "iterate_prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "generate_ad_prompts": {
+      "main": [
+        [
+          {
+            "node": "extract_prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "9c51c672-c568-4abb-9296-e35d79f96d59",
+  "meta": {
+    "instanceId": "abc75d71d22f5fe9d31e89c9f0760c3b86ddaf19a96f39faf7f61c52454cc740"
+  },
+  "id": "imEWSILSXpDhFoXL",
+  "tags": []
+}

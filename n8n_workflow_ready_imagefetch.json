@@ -1,5 +1,5 @@
 {
-  "name": "UGC Video Generator Platform - AdVideoLab",
+  "name": "Advideo lab UGC Video Creator (imagefix)",
   "nodes": [
     {
       "parameters": {
@@ -28,7 +28,7 @@
           "mode": "list",
           "cachedResultName": "GPT-4O"
         },
-        "text": "=**// ROLE & GOAL //**\nYou are an expert casting director and consumer psychologist. Your task is to analyse the provided product image, product name, and the creative brief from the user, and then build a SHORT, PRACTICAL persona profile for a real consumer who will authentically promote the product in a 12-second UGC selfie video.\n\nYou are given a creative brief (if provided) from the user that describes the desired angle, hook, use-case or scenario for the video. Use this brief as PRIMARY DIRECTION to fine-tune the persona's situation, tone and lifestyle. If NO brief is provided, analyze the product image deeply and create an authentic persona.\n\nThe persona MUST:\n- Match this selected gender: **{{ $json.gender }}**\n- Fit inside this selected age range: **{{ $json.ageRange }}**\n- Speak this language in the video: **{{ $json.language }}**\n- Embody this vibe: **{{ $json.vibe }}**\n- Match this voice profile: **{{ $json.voiceProfile }}**\n- Be optimized for platform: **{{ $json.platform }}**\n- Feel like a believable, modern consumer (not an influencer stereotype)\n\nDo NOT write ad scripts, hooks, CTAs or shot lists here. Output ONLY the persona profile.\n\n**// INPUT //**\nProduct Name: `{{ $json.productName }}`\nProduct Image: Attached as binary data\nCreative Brief (may be empty): `{{ $json.prompt || \"\" }}`\nCTA Emphasis: `{{ $json.cta || \"None\" }}`\n\n**// OUTPUT FORMAT (STRICT) //**\nWrite the profile in fluent English (internal use only). Keep it concise but concrete (max ~250\u2013300 words).\n\nUse exactly these sections and bullet points:\n\n**I. Core Identity**\n- **Name:** (realistic first + last name for the selected language/culture)\n- **Age:** (a specific age that fits inside the selected age range)\n- **Gender:** {{ $json.gender }}\n- **Location:** (city/area that fits the language/cultural context)\n- **Occupation:** (plausible job that fits their age, language and lifestyle)\n\n**II. Appearance & On-Camera Style**\n- **General look:** Clothing style, vibe, how they usually appear on camera (selfie on phone)\n- **Energy level:** Matches the selected vibe: {{ $json.vibe }}\n- **Voice characteristics:** Matches profile: {{ $json.voiceProfile }}\n- **Platform style:** Natural fit for {{ $json.platform }}\n\n**III. Lifestyle & Product Fit**\n- **Daily routines:** 3\u20134 bullet points about their day that make this product relevant\n- **Values & preferences:** What they care about when choosing products like this\n- **Why this product fits them:** 2\u20133 short bullets explaining why they are a perfect match to show this product\n- **CTA natural fit:** How {{ $json.cta || \"no CTA\" }} works naturally for them\n\nKeep everything realistic, grounded and human. The goal is to give the script-writer a clear mental picture of ONE real person who could record a selfie video about this product.",
+        "text": "=**// ROLE & GOAL //**\nYou are an expert casting director and consumer psychologist. Your task is to analyse the provided product image, product name, and the creative brief from the user, and then build a SHORT, PRACTICAL persona profile for a real consumer who will authentically promote the product in a 12-second UGC selfie video.\n\nYou are given a creative brief (if provided) from the user that describes the desired angle, hook, use-case or scenario for the video. Use this brief as PRIMARY DIRECTION to fine-tune the persona's situation, tone and lifestyle. If NO brief is provided, analyze the product image deeply and create an authentic persona.\n\nThe persona MUST:\n- Match this selected gender: **{{ $json.body.gender }}**\n- Fit inside this selected age range: **{{ $json.body.ageRange }}**\n- Speak this language in the video: **{{ $json.body.language }}**\n- Embody this vibe: **{{ $json.body.vibe }}**\n- Match this voice profile: **{{ $json.body.voiceProfile }}**\n- Be optimized for platform: **{{ $json.body.platform }}**\n- Feel like a believable, modern consumer (not an influencer stereotype)\n\nDo NOT write ad scripts, hooks, CTAs or shot lists here. Output ONLY the persona profile.\n\n**// INPUT //**\nProduct Name: `{{ $json.body.productName }}`\nProduct Image: Attached as binary data\nCreative Brief (may be empty): `{{ $json.body.prompt || \"\" }}`\nCTA Emphasis: `{{ $json.body.cta || \"None\" }}`\n\n**// OUTPUT FORMAT (STRICT) //**\nWrite the profile in fluent English (internal use only). Keep it concise but concrete (max ~250\u2013300 words).\n\nUse exactly these sections and bullet points:\n\n**I. Core Identity**\n- **Name:** (realistic first + last name for the selected language/culture)\n- **Age:** (a specific age that fits inside the selected age range)\n- **Gender:** {{ $json.body.gender }}\n- **Location:** (city/area that fits the language/cultural context)\n- **Occupation:** (plausible job that fits their age, language and lifestyle)\n\n**II. Appearance & On-Camera Style**\n- **General look:** Clothing style, vibe, how they usually appear on camera (selfie on phone)\n- **Energy level:** Matches the selected vibe: {{ $json.body.vibe }}\n- **Voice characteristics:** Matches profile: {{ $json.body.voiceProfile }}\n- **Platform style:** Natural fit for {{ $json.body.platform }}\n\n**III. Lifestyle & Product Fit**\n- **Daily routines:** 3\u20134 bullet points about their day that make this product relevant\n- **Values & preferences:** What they care about when choosing products like this\n- **Why this product fits them:** 2\u20133 short bullets explaining why they are a perfect match to show this product\n- **CTA natural fit:** How {{ $json.body.cta || \"no CTA\" }} works naturally for them\n\nKeep everything realistic, grounded and human. The goal is to give the script-writer a clear mental picture of ONE real person who could record a selfie video about this product.",
         "inputType": "base64",
         "options": {}
       },
@@ -77,7 +77,7 @@
             {
               "id": "build-video-prompt-id",
               "name": "masterPrompt",
-              "value": "=**MASTER PROMPT: Raw 12-Second UGC Video Scripts**\n\nYou are an expert at creating authentic UGC video scripts that feel like someone grabbed their phone and recorded a quick, messy, real 12-second video.\n\n**INPUTS:**\n- Product Name: {{ $('webhook_trigger').item.json.productName }}\n- Creator Profile: {{ $('set_model_details').item.json.persona }}\n- Creative Brief: {{ $('webhook_trigger').item.json.prompt || '' }}\n- Gender: {{ $('webhook_trigger').item.json.gender }}\n- Age Range: {{ $('webhook_trigger').item.json.ageRange }}\n- Language: {{ $('webhook_trigger').item.json.language }}\n- Vibe: {{ $('webhook_trigger').item.json.vibe }}\n- Platform: {{ $('webhook_trigger').item.json.platform }}\n- Voice Profile: {{ $('webhook_trigger').item.json.voiceProfile }}\n- CTA: {{ $('webhook_trigger').item.json.cta || 'None' }}\n- Number of Scripts: {{ $('webhook_trigger').item.json.videoCount || 1 }}\n\n**GOAL:**\nCreate exactly **{{ $('webhook_trigger').item.json.videoCount || 1 }}** natural, unscripted-feeling 12-second UGC video scripts.\n\n**12-SECOND STRUCTURE:**\n[0:00-0:02] Hook - Grab attention naturally\n[0:02-0:09] Main content - Show/tell about product\n[0:09-0:12] Closing - Natural end with CTA if specified\n\n**OUTPUT FORMAT:**\nFor EACH script:\n\n---\n**SCRIPT [#]: [3\u20135 word angle]**\n\n**Energy:** [One line matching persona + vibe]\n\n**Language:** {{ $('webhook_trigger').item.json.language }}\n\n**Script:**\n[0:00\u20130:02] \"[Opening in {{ $('webhook_trigger').item.json.language }}]\"\n[0:02\u20130:09] \"[Main content in {{ $('webhook_trigger').item.json.language }}]\"\n[0:09\u20130:12] \"[Closing in {{ $('webhook_trigger').item.json.language }}]\"\n\n**Shots:**\n- Shot 1 (0-2s): [Setting, action]\n- Shot 2 (2-9s): [Product interaction]\n- Shot 3 (9-12s): [Closing reaction]\n\n---\n\n**GENERATE {{ $('webhook_trigger').item.json.videoCount || 1 }} UNIQUE SCRIPTS NOW.**",
+              "value": "=**MASTER PROMPT: Raw 12-Second UGC Video Scripts**\n\nYou are an expert at creating authentic UGC video scripts that feel like someone grabbed their phone and recorded a quick, messy, real 12-second video.\n\n**INPUTS:**\n- Product Name: {{ $('webhook_trigger').item.json.body.productName }}\n- Creator Profile: {{ $('set_model_details').item.json.persona }}\n- Creative Brief: {{ $('webhook_trigger').item.json.body.prompt || '' }}\n- Gender: {{ $('webhook_trigger').item.json.body.gender }}\n- Age Range: {{ $('webhook_trigger').item.json.body.ageRange }}\n- Language: {{ $('webhook_trigger').item.json.body.language }}\n- Vibe: {{ $('webhook_trigger').item.json.body.vibe }}\n- Platform: {{ $('webhook_trigger').item.json.body.platform }}\n- Voice Profile: {{ $('webhook_trigger').item.json.body.voiceProfile }}\n- CTA: {{ $('webhook_trigger').item.json.body.cta || 'None' }}\n- Number of Scripts: {{ $('webhook_trigger').item.json.body.videoCount || 1 }}\n\n**GOAL:**\nCreate exactly **{{ $('webhook_trigger').item.json.body.videoCount || 1 }}** natural, unscripted-feeling 12-second UGC video scripts.\n\n**12-SECOND STRUCTURE:**\n[0:00-0:02] Hook - Grab attention naturally\n[0:02-0:09] Main content - Show/tell about product\n[0:09-0:12] Closing - Natural end with CTA if specified\n\n**OUTPUT FORMAT:**\nFor EACH script:\n\n---\n**SCRIPT [#]: [3\u20135 word angle]**\n\n**Energy:** [One line matching persona + vibe]\n\n**Language:** {{ $('webhook_trigger').item.json.body.language }}\n\n**Script:**\n[0:00\u20130:02] \"[Opening in {{ $('webhook_trigger').item.json.body.language }}]\"\n[0:02\u20130:09] \"[Main content in {{ $('webhook_trigger').item.json.body.language }}]\"\n[0:09\u20130:12] \"[Closing in {{ $('webhook_trigger').item.json.body.language }}]\"\n\n**Shots:**\n- Shot 1 (0-2s): [Setting, action]\n- Shot 2 (2-9s): [Product interaction]\n- Shot 3 (9-12s): [Closing reaction]\n\n---\n\n**GENERATE {{ $('webhook_trigger').item.json.body.videoCount || 1 }} UNIQUE SCRIPTS NOW.**",
               "type": "string"
             }
           ]
@@ -115,7 +115,7 @@
         "operation": "toBinary",
         "sourceProperty": "data",
         "options": {
-          "fileName": "={{ $('webhook_trigger').item.json.productName }}.jpg",
+          "fileName": "={{ $('webhook_trigger').item.json.body.productName }}.jpg",
           "mimeType": "image/jpeg"
         }
       },
@@ -387,13 +387,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('webhook_trigger').item.json.callbackUrl }}",
+        "url": "={{ $('webhook_trigger').item.json.body.callbackUrl }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "x-n8n-token",
-              "value": "={{ $('webhook_trigger').item.json.callbackToken }}"
+              "value": "={{ $('webhook_trigger').item.json.body.callbackToken }}"
             }
           ]
         },
@@ -408,7 +408,7 @@
             },
             {
               "name": "jobId",
-              "value": "={{ $('webhook_trigger').item.json.jobId }}"
+              "value": "={{ $('webhook_trigger').item.json.body.jobId }}"
             },
             {
               "name": "scriptIndex",
@@ -540,7 +540,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "={{ $json.imageUrl }}",
+        "url": "={{ $json.body?.imageUrl || $json.body?.apiKeys?.imageUrl || $json.body?.input_assets?.image_url || $json.body?.uploaded_image_url || $json.imageUrl }}",
         "options": {
           "response": {
             "response": {
