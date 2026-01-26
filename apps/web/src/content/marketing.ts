@@ -35,7 +35,7 @@ export const featureGrid = [
     icon: '🎬',
   },
   {
-    title: '20+ languages',
+    title: '50+ languages',
     description: 'Create localized variations with separate US & UK English options.',
     icon: '🎙️',
   },

@@ -193,7 +193,7 @@ const typingWords = ['TikTok', 'Instagram Reels', 'YouTube Shorts', 'Social Ads'
 const logos = ['TikTok', 'Meta', 'YouTube', 'Shopify', 'Amazon', 'Stripe'];
 
 const stats: StatItem[] = [
-  { value: '20+', label: 'Languages', description: 'Localized scripts and voices', gradient: 'from-blue-500 to-cyan-400' },
+  { value: '50+', label: 'Languages', description: 'Localized scripts and voices', gradient: 'from-blue-500 to-cyan-400' },
   { value: '3', label: 'Platforms', description: 'TikTok, Reels, Shorts ready', gradient: 'from-purple-500 to-pink-500' },
   { value: '5+', label: 'Variations', description: 'Per generation run', gradient: 'from-green-500 to-emerald-400' },
 ];
@@ -219,7 +219,7 @@ const howItWorks: StepItem[] = [
 const features: FeatureItem[] = [
   {
     title: 'Multi-language support',
-    description: 'Generate UGC in 20+ languages with native-sounding voices and localized scripts.',
+    description: 'Generate UGC in 50+ languages with native-sounding voices and localized scripts.',
     icon: <IconGlobe />,
   },
   {
@@ -244,7 +244,7 @@ const faqs: FaqItem[] = [
   { question: 'How long does generation take?', answer: 'Most videos are ready in 2-5 minutes depending on length and current queue. Batch generations may take slightly longer.' },
   { question: 'Can I control the script and CTA?', answer: 'Yes. You can provide custom prompts, select from different tones and vibes, and specify your exact call-to-action.' },
   { question: 'Which platforms are supported?', answer: 'We optimize for TikTok, Instagram Reels, and YouTube Shorts with proper aspect ratios and durations for each.' },
-  { question: 'Do you support multiple languages?', answer: 'Yes, we support 20+ languages including English (US/UK), Spanish, French, German, Portuguese, and many more.' },
+  { question: 'Do you support multiple languages?', answer: 'Yes, we support 50+ languages including English (US/UK), Spanish, French, German, Portuguese, and many more.' },
   { question: 'What about commercial usage rights?', answer: 'All generated content includes full commercial rights. Use it for ads, organic posts, or any marketing purpose.' },
 ];
 
@@ -663,7 +663,7 @@ const LandingPage = () => {
               </div>
 
               <ul className="mt-10 space-y-3">
-                {['No filming required', '20+ languages supported', 'Download MP4 instantly'].map((item) => (
+                {['No filming required', '50+ languages supported', 'Download MP4 instantly'].map((item) => (
                   <li key={item} className="flex items-center gap-3 text-slate-600">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-100">
                       <IconCheck className="h-3 w-3 text-[#2e90fa]" />
@@ -902,7 +902,7 @@ const LandingPage = () => {
                   </li>
                   <li className="flex items-center gap-3 text-sm text-slate-600">
                     <IconCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
-                    20+ languages supported
+                    50+ languages supported
                   </li>
                   <li className="flex items-center gap-3 text-sm text-slate-600">
                     <IconCheck className="h-4 w-4 text-green-500 flex-shrink-0" />

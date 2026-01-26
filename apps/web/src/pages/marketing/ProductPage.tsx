@@ -49,7 +49,7 @@ const ProductPage = () => {
           </div>
 
           <div className="mx-auto mt-10 flex flex-wrap items-center justify-center gap-3 text-sm text-slate-600">
-            {['20+ languages', '1–5+ variations per run', 'TikTok / Reels / Shorts'].map((chip) => (
+            {['50+ languages', '1–5+ variations per run', 'TikTok / Reels / Shorts'].map((chip) => (
               <span key={chip} className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2">
                 {chip}
               </span>
@@ -67,7 +67,7 @@ const ProductPage = () => {
         <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {[
             { title: 'Upload a single image', desc: 'Drag & drop a product photo to start.' },
-            { title: 'Choose language', desc: 'Generate scripts in 20+ languages.' },
+            { title: 'Choose language', desc: 'Generate scripts in 50+ languages.' },
             { title: 'Choose platform', desc: 'Optimized for TikTok, Reels, and Shorts.' },
             { title: 'Pick voice profile', desc: 'Match voice style to your brand and offer.' },
             { title: 'Pick vibe + creator persona', desc: 'Define the on-camera feel and persona.' },

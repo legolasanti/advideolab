@@ -84,3 +84,6 @@ Usage:
 
 - Added this context document and established the “read first + append changes” workflow.
 
+### 2026-01-26
+
+- Expanded supported languages list to 50+ and updated marketing copy to reflect the new count.

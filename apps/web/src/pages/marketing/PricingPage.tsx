@@ -25,7 +25,7 @@ const PricingPage = () => {
   ] as const;
 
   const identicalRows = [
-    '20+ languages',
+    '50+ languages',
     'TikTok / Reels / Shorts formats',
     'Voice profile + vibe controls',
     'Creator gender + age range',
