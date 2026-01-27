@@ -9,6 +9,7 @@ export interface Job {
   productName?: string;
   createdAt: string;
   completedAt?: string | null;
+  finishedAt?: string | null;
   videoUrl?: string | null;
   prompt?: string | null;
   language?: string | null;
@@ -22,6 +23,7 @@ export interface Job {
   options?: Record<string, unknown> | null;
   durationSeconds?: number | null;
   provider?: string | null;
+  outputs?: Array<{ url?: string | null }> | null;
 }
 
 interface ApiJobsResponse {
@@ -42,6 +44,31 @@ export interface JobsResponse {
   };
 }
 
+const normalizeStatus = (status?: string) => {
+  switch (status) {
+    case 'running':
+      return 'processing';
+    case 'done':
+      return 'completed';
+    case 'error':
+      return 'failed';
+    default:
+      return status;
+  }
+};
+
+const resolveVideoUrl = (job: Job) => {
+  if (job.videoUrl) return job.videoUrl;
+  const outputs = job.outputs;
+  if (Array.isArray(outputs) && outputs.length > 0) {
+    const first = outputs[0];
+    if (first && typeof first === 'object' && 'url' in first) {
+      return (first as { url?: string | null }).url ?? null;
+    }
+  }
+  return null;
+};
+
 export const fetchJobs = async (
   page = 1,
   status?: string,
@@ -57,8 +84,18 @@ export const fetchJobs = async (
     const response = await api.get<ApiJobsResponse>(endpoint, { params });
     const apiResponse = response.data;
 
+    const normalizedJobs = (apiResponse?.data ?? []).map((job) => {
+      const normalizedStatus = normalizeStatus(job.status);
+      return {
+        ...job,
+        status: (normalizedStatus ?? 'pending') as Job['status'],
+        videoUrl: resolveVideoUrl(job),
+        completedAt: job.completedAt ?? job.finishedAt ?? null,
+      };
+    });
+
     return {
-      jobs: apiResponse?.data ?? [],
+      jobs: normalizedJobs,
       pagination: apiResponse?.pagination,
     };
   } catch (error) {

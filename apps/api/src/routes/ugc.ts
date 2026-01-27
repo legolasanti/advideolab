@@ -9,7 +9,7 @@ import { prisma } from '../lib/prisma';
 import { uploadBuffer } from '../lib/s3';
 import { env } from '../config/env';
 import { decrypt } from '../lib/crypto';
-import { completeUgcJobFromUpload, createUgcJob } from '../services/ugcVideoService';
+import { completeUgcJobFromUpload, createUgcJob, markUgcJobFailed } from '../services/ugcVideoService';
 import { validateUpload } from '../utils/fileValidation';
 import { sanitizeImage } from '../services/imageProcessing';
 
@@ -354,5 +354,77 @@ router.post(
   },
   handleLargeUploadErrors,
 );
+
+router.post('/jobs/:jobId/fail', async (req: Request, res: Response) => {
+  const job = await prisma.job.findUnique({
+    where: { id: req.params.jobId },
+    select: { id: true, options: true },
+  });
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  const expectedTokenHash = callbackTokenHashFromOptions(job.options);
+  const providedToken = (req.header('x-callback-token') ?? req.header('x-internal-api-token'))?.trim();
+
+  if (expectedTokenHash) {
+    const providedBytes = parseCallbackToken(providedToken);
+    if (!providedBytes) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    const providedHash = crypto.createHash('sha256').update(providedBytes).digest();
+    const authorized = crypto.timingSafeEqual(providedHash, expectedTokenHash);
+    if (!authorized) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+  } else {
+    if (!providedToken || providedToken.length < 32) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const config = await prisma.systemConfig.findUnique({
+      where: { id: 'singleton' },
+      select: { n8nInternalToken: true },
+    });
+
+    let expectedToken: string | null = env.n8nInternalToken?.trim() ?? null;
+    if (config?.n8nInternalToken) {
+      try {
+        expectedToken = decrypt(config.n8nInternalToken).trim();
+      } catch (_err) {
+        expectedToken = null;
+      }
+    }
+
+    if (!expectedToken || expectedToken.length < 32) {
+      return res.status(503).json({ error: 'internal_token_not_configured' });
+    }
+
+    const providedHash = crypto.createHash('sha256').update(providedToken).digest();
+    const expectedHash = crypto.createHash('sha256').update(expectedToken).digest();
+    const authorized = crypto.timingSafeEqual(providedHash, expectedHash);
+    if (!authorized) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+  }
+
+  const errorMessage =
+    typeof req.body?.error === 'string'
+      ? req.body.error
+      : typeof req.body?.message === 'string'
+      ? req.body.message
+      : 'workflow_failed';
+
+  try {
+    const result = await markUgcJobFailed({ jobId: req.params.jobId, errorMessage });
+    return res.json({ ...result, status: 'failed' });
+  } catch (err: any) {
+    if (err?.message === 'job_not_found') {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    console.error('[ugc] Failed to mark job error', err);
+    return res.status(500).json({ error: 'callback_failed' });
+  }
+});
 
 export default router;

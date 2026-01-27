@@ -334,3 +334,48 @@ export const completeUgcJobFromUpload = async (params: {
     videoUrl: uploadedUrl,
   };
 };
+
+export const markUgcJobFailed = async (params: { jobId: string; errorMessage?: string | null }) => {
+  const { jobId, errorMessage } = params;
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: { id: true, tenantId: true, status: true, finishedAt: true, options: true },
+  });
+  if (!job) {
+    throw new Error('job_not_found');
+  }
+
+  const reservation = (() => {
+    const options = job?.options;
+    if (!options || typeof options !== 'object' || Array.isArray(options)) return null;
+    const entry = (options as Record<string, unknown>).quotaReservation;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+    const reservedVideos = (entry as { reservedVideos?: unknown }).reservedVideos;
+    return typeof reservedVideos === 'number' && Number.isFinite(reservedVideos) && reservedVideos > 0
+      ? Math.trunc(reservedVideos)
+      : null;
+  })();
+
+  const updated = await prisma.job.updateMany({
+    where: {
+      id: jobId,
+      finishedAt: null,
+      status: { in: [JobStatus.pending, JobStatus.processing, JobStatus.running] },
+    },
+    data: {
+      status: JobStatus.failed,
+      errorMessage: (errorMessage ?? 'workflow_failed').slice(0, 2000),
+      finishedAt: new Date(),
+    },
+  });
+
+  if (updated.count === 0) {
+    return { updated: false };
+  }
+
+  if (reservation != null) {
+    await releaseReservedTenantQuota(job.tenantId, reservation);
+  }
+
+  return { updated: true };
+};
