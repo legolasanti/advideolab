@@ -643,6 +643,52 @@ const LandingPage = () => {
   const secondaryCtaHref = heroContent.secondaryCtaHref?.trim() || defaultHeroContent.secondaryCtaHref || '/pricing';
   const heroVideoUrl = heroContent.videoUrl?.trim();
   const heroEmbedUrl = heroVideoUrl ? resolveHeroEmbedUrl(heroVideoUrl) : null;
+
+  const legacyHeadline = 'Create High-Converting UGC Videos from a Single Image';
+  const headlineTemplate = heroHeadline === legacyHeadline ? 'Create UGC Videos for {{platform}}' : heroHeadline;
+  const headlineToken =
+    headlineTemplate.includes('{{platform}}')
+      ? '{{platform}}'
+      : headlineTemplate.includes('{platform}')
+      ? '{platform}'
+      : headlineTemplate.includes('[platform]')
+      ? '[platform]'
+      : null;
+  const headlineParts = headlineToken ? headlineTemplate.split(headlineToken) : null;
+  const rotatingPlatforms = ['Instagram Reels', 'TikTok', 'YouTube Shorts'];
+  const shouldRotateHeadline = Boolean(headlineToken && headlineParts && headlineParts.length === 2);
+  const [platformIndex, setPlatformIndex] = useState(0);
+  const [headlineCharIndex, setHeadlineCharIndex] = useState(0);
+  const [headlineDeleting, setHeadlineDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!shouldRotateHeadline) return;
+    const currentWord = rotatingPlatforms[platformIndex] ?? '';
+    const atEnd = headlineCharIndex >= currentWord.length;
+    const atStart = headlineCharIndex <= 0;
+    let delay = headlineDeleting ? 45 : 80;
+    if (!headlineDeleting && atEnd) delay = 1200;
+    if (headlineDeleting && atStart) delay = 350;
+
+    const timer = window.setTimeout(() => {
+      if (!headlineDeleting && atEnd) {
+        setHeadlineDeleting(true);
+        return;
+      }
+      if (headlineDeleting && atStart) {
+        setHeadlineDeleting(false);
+        setPlatformIndex((prev) => (prev + 1) % rotatingPlatforms.length);
+        return;
+      }
+      setHeadlineCharIndex((prev) => prev + (headlineDeleting ? -1 : 1));
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [headlineDeleting, headlineCharIndex, platformIndex, rotatingPlatforms.length, shouldRotateHeadline]);
+
+  const activePlatform = rotatingPlatforms[platformIndex] ?? '';
+  const animatedPlatform =
+    shouldRotateHeadline && activePlatform ? activePlatform.slice(0, headlineCharIndex) : activePlatform;
   const testimonialsList: CmsTestimonial[] = testimonialsData ?? defaultTestimonials.map((t) => ({
     ...t,
     avatarUrl: undefined,
@@ -680,7 +726,21 @@ const LandingPage = () => {
               </PillBadge>
 
               <h1 className="mt-6 text-4xl font-bold tracking-tight text-slate-900 md:text-5xl lg:text-6xl">
-                {heroHeadline}
+                {shouldRotateHeadline && headlineParts ? (
+                  <>
+                    {headlineParts[0]}
+                    <span className="relative inline-flex items-center text-slate-900">
+                      {animatedPlatform}
+                      <span
+                        className="ml-1 inline-block h-[1em] w-[2px] animate-pulse bg-slate-900/70 align-middle"
+                        aria-hidden="true"
+                      />
+                    </span>
+                    {headlineParts[1]}
+                  </>
+                ) : (
+                  heroHeadline
+                )}
               </h1>
 
               <p className="mt-6 text-lg text-slate-600 max-w-xl">

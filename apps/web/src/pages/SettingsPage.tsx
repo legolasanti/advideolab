@@ -316,9 +316,21 @@ const SettingsPage = () => {
                     ? `Cancellation scheduled for ${effective}.`
                     : 'Cancellation scheduled. You will receive a confirmation email shortly.',
                 );
+                if (data?.emailSent === false) {
+                  setCancelError('Cancellation was scheduled, but we could not send the confirmation email. Please contact support.');
+                }
                 refreshProfile();
               } catch (err: any) {
                 const serverError = err?.response?.data?.error;
+                if (serverError === 'cancel_already_scheduled') {
+                  setCancelSuccess('Cancellation is already scheduled for the end of your billing period.');
+                  await refreshProfile();
+                  return;
+                }
+                if (serverError === 'subscription_already_canceled') {
+                  setCancelError('Your subscription is already canceled.');
+                  return;
+                }
                 setCancelError(typeof serverError === 'string' ? serverError : 'Unable to cancel subscription.');
               } finally {
                 setCancelLoading(false);

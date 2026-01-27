@@ -168,7 +168,12 @@ router.post(
     }
 
     if (req.tenant.subscriptionCancelAt && req.tenant.subscriptionCancelAt > new Date()) {
-      return res.status(400).json({ error: 'cancel_already_scheduled' });
+      return res.json({
+        ok: true,
+        effectiveAt: req.tenant.subscriptionCancelAt,
+        alreadyScheduled: true,
+        emailSent: true,
+      });
     }
 
     const body = z
@@ -269,19 +274,46 @@ router.post(
     if (req.auth?.userId) {
       adminUser = await prisma.user.findUnique({ where: { id: req.auth.userId }, select: { email: true } });
     }
+
+    let emailSent = false;
     if (adminUser?.email && effectiveAt) {
-      await sendSubscriptionCancelledEmail({
-        email: adminUser.email,
-        companyName: req.tenant.name,
-        planName,
-        effectiveDate: effectiveAt,
+      try {
+        emailSent = await sendSubscriptionCancelledEmail({
+          email: adminUser.email,
+          companyName: req.tenant.name,
+          planName,
+          effectiveDate: effectiveAt,
+        });
+      } catch (err) {
+        console.warn('[billing] failed to send cancellation email');
+        emailSent = false;
+      }
+    }
+
+    try {
+      await prisma.adminNotification.create({
+        data: {
+          tenantId: req.tenant.id,
+          type: 'subscription_cancel',
+          message: `${req.tenant.name} requested cancellation (${planName}).`,
+          details: {
+            tenantId: req.tenant.id,
+            planCode,
+            effectiveAt: effectiveAt?.toISOString() ?? null,
+            reason: body.reason,
+            actorUserId: req.auth?.userId ?? null,
+          },
+        },
       });
+    } catch (err) {
+      console.warn('[billing] failed to create admin notification');
     }
 
     res.json({
       ok: true,
       effectiveAt,
       billingInterval,
+      emailSent,
     });
   },
 );

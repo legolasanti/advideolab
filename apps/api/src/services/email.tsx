@@ -81,7 +81,13 @@ const resolveEmailConfig = async (): Promise<ResolvedEmailConfig> => {
   const host = normalizeOptional(system?.smtpHost) ?? normalizeOptional(env.SMTP_HOST);
   const port = system?.smtpPort ?? (env.SMTP_PORT ? parseInt(env.SMTP_PORT, 10) : 587);
   const user = normalizeOptional(system?.smtpUser) ?? normalizeOptional(env.SMTP_USER);
-  const pass = system?.smtpPassEncrypted ? decrypt(system.smtpPassEncrypted) : normalizeOptional(env.SMTP_PASS);
+  let pass: string | null = null;
+  try {
+    pass = system?.smtpPassEncrypted ? decrypt(system.smtpPassEncrypted) : normalizeOptional(env.SMTP_PASS);
+  } catch (err) {
+    console.warn('[email] failed to decrypt SMTP password');
+    pass = null;
+  }
   const from = normalizeOptional(system?.emailFrom) ?? normalizeOptional(env.EMAIL_FROM);
   const notificationEmail =
     normalizeOptional(system?.notificationEmail) ?? normalizeOptional(env.ownerNotificationEmail);
@@ -518,7 +524,7 @@ export const sendSubscriptionCancelledEmail = async ({
   companyName: string;
   planName: string;
   effectiveDate: Date;
-}) => {
+}): Promise<boolean> => {
   const effectiveDateLabel = effectiveDate.toLocaleDateString();
   const template = buildSubscriptionCancelledEmail({
     companyName,
@@ -526,7 +532,7 @@ export const sendSubscriptionCancelledEmail = async ({
     effectiveDateLabel,
     dashboardUrl: `${env.WEB_BASE_URL}/settings`,
   });
-  await sendMail({
+  return sendMail({
     to: email,
     subject: template.subject,
     text: template.text,

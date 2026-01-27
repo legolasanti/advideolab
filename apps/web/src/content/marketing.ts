@@ -1,5 +1,5 @@
 export const heroContent = {
-  headline: 'Create High-Converting UGC Videos from a Single Image',
+  headline: 'Create UGC Videos for {{platform}}',
   subheadline:
     'Upload one photo, choose language & platform, and generate TikTok, Reels & Shorts-ready UGC videos in minutes. No filming. No editing.',
   primaryCtaLabel: 'Generate your first UGC video',
