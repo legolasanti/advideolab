@@ -87,3 +87,4 @@ Usage:
 ### 2026-01-26
 
 - Expanded supported languages list to 50+ and updated marketing copy to reflect the new count.
+- Wired CMS-driven content into marketing pages (landing hero text/video, features, pricing subtitle, contact description, product sections).

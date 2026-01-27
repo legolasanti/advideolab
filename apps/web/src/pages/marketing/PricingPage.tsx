@@ -4,6 +4,8 @@ import Seo from '../../components/Seo';
 import { getSiteUrl } from '../../lib/urls';
 import { PLAN_DEFINITIONS } from '../../lib/plans';
 import { formatSupportedLanguages } from '../../lib/languages';
+import { pricingSubtitle } from '../../content/marketing';
+import { useCmsSection } from '../../hooks/useCmsSection';
 
 const baseCard = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
 
@@ -18,6 +20,11 @@ const Check = () => (
 const PricingPage = () => {
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'annual'>('monthly');
   const isAnnual = billingInterval === 'annual';
+  const { data: pricingCms } = useCmsSection('pricing', { subtitle: pricingSubtitle });
+  const subtitle =
+    typeof pricingCms.subtitle === 'string' && pricingCms.subtitle.trim().length > 0
+      ? pricingCms.subtitle
+      : pricingSubtitle;
   const plans = [
     { code: 'starter', name: 'Starter', popular: false, videosPerMonth: '10', videosSaved: 'Last 10', cta: 'Start Starter' },
     { code: 'growth', name: 'Growth', popular: true, videosPerMonth: '30', videosSaved: 'Last 20', cta: 'Start Growth' },
@@ -52,7 +59,7 @@ const PricingPage = () => {
           </span>
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">Predictable pricing for UGC volume</h1>
           <p className="mt-5 text-lg text-slate-600">
-            Pick a plan based on monthly output and how many recent videos you want saved.
+            {subtitle}
           </p>
           <div className="mt-8 inline-flex rounded-full border border-slate-200 bg-slate-50 p-1 text-sm">
             <button

@@ -1,10 +1,23 @@
 import { Link } from 'react-router-dom';
 import Seo from '../../components/Seo';
 import { getSiteUrl } from '../../lib/urls';
+import { productSections as productSectionsFallback } from '../../content/marketing';
+import { useCmsSection } from '../../hooks/useCmsSection';
 
 const baseCard = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
 
+type ProductSection = {
+  title: string;
+  description: string;
+  image?: string;
+};
+
 const ProductPage = () => {
+  const { data: productCms } = useCmsSection('product', { sections: productSectionsFallback });
+  const cmsSections = Array.isArray(productCms.sections)
+    ? (productCms.sections as ProductSection[])
+    : productSectionsFallback;
+
   return (
     <div className="space-y-16 px-4 py-16 bg-white min-h-screen">
       <Seo
@@ -102,6 +115,27 @@ const ProductPage = () => {
           ))}
         </div>
       </section>
+
+      {/* Product highlights */}
+      {cmsSections.length > 0 && (
+        <section className="mx-auto max-w-6xl">
+          <h2 className="text-3xl font-bold text-slate-900">Product highlights</h2>
+          <p className="mt-3 max-w-3xl text-slate-600">
+            Configure these sections in Owner → CMS Manager → Product page.
+          </p>
+          <div className="mt-10 grid gap-6 md:grid-cols-2">
+            {cmsSections.map((section) => (
+              <article key={section.title} className={`${baseCard} p-6`}>
+                {section.image ? (
+                  <img src={section.image} alt={section.title} className="mb-4 h-40 w-full rounded-xl object-cover" />
+                ) : null}
+                <h3 className="text-lg font-semibold text-slate-900">{section.title}</h3>
+                <p className="mt-2 text-sm text-slate-600">{section.description}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* CTA strip */}
       <section className="mx-auto max-w-6xl">

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Seo from '../../components/Seo';
 import api from '../../lib/api';
-import { contactDefaults } from '../../content/marketing';
+import { contactCopy, contactDefaults } from '../../content/marketing';
 import { useCmsSection } from '../../hooks/useCmsSection';
 import { getSiteUrl } from '../../lib/urls';
 import { formatSupportedLanguages } from '../../lib/languages';
@@ -15,7 +15,7 @@ const ContactPage = () => {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [successMessage, setSuccessMessage] = useState('');
 
-  const { data: contactCms } = useCmsSection('contact', { settings: contactDefaults });
+  const { data: contactCms } = useCmsSection('contact', { settings: contactDefaults, description: contactCopy.description });
   const targetEmail =
     (contactCms.settings &&
     typeof contactCms.settings === 'object' &&
@@ -24,6 +24,10 @@ const ContactPage = () => {
     typeof (contactCms.settings as any).targetEmail === 'string'
       ? (contactCms.settings as any).targetEmail
       : contactDefaults.targetEmail) || contactDefaults.targetEmail;
+  const description =
+    typeof contactCms.description === 'string' && contactCms.description.trim().length > 0
+      ? contactCms.description
+      : contactCopy.description;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormState((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -73,7 +77,7 @@ const ContactPage = () => {
             </span>
             <h1 className="mt-6 text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">Get in Touch</h1>
             <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-600">
-              Questions about plans, languages, or output? Send us a message.
+              {description}
             </p>
             <div className="mx-auto mt-8 flex flex-wrap items-center justify-center gap-3 text-sm text-slate-600">
               <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2">Typical reply: same day</span>

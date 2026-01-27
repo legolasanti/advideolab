@@ -67,6 +67,8 @@ type CmsHeroContent = {
   subheadline: string;
   primaryCtaLabel: string;
   secondaryCtaLabel: string;
+  primaryCtaHref?: string;
+  secondaryCtaHref?: string;
   videoUrl?: string;
   videoPoster?: string;
 };
@@ -83,6 +85,12 @@ type CmsHowItWorksItem = {
   description: string;
   step: string;
   imageUrl?: string;
+};
+
+type CmsFeatureItem = {
+  title: string;
+  description: string;
+  icon?: string;
 };
 
 // ============================================================================
@@ -216,7 +224,7 @@ const howItWorks: StepItem[] = [
   },
 ];
 
-const features: FeatureItem[] = [
+const defaultFeatures: FeatureItem[] = [
   {
     title: 'Multi-language support',
     description: 'Generate UGC in 50+ languages with native-sounding voices and localized scripts.',
@@ -253,6 +261,47 @@ const pricingPlans = [
   { ...PLAN_DEFINITIONS.growth, popular: true },
   { ...PLAN_DEFINITIONS.scale, popular: false },
 ];
+
+const getYouTubeId = (value: string) => {
+  try {
+    const url = new URL(value);
+    if (url.hostname.includes('youtu.be')) {
+      return url.pathname.replace('/', '');
+    }
+    if (url.pathname.startsWith('/shorts/')) {
+      return url.pathname.split('/shorts/')[1]?.split('/')[0] ?? null;
+    }
+    if (url.pathname.startsWith('/embed/')) {
+      return url.pathname.split('/embed/')[1]?.split('/')[0] ?? null;
+    }
+    return url.searchParams.get('v');
+  } catch (_err) {
+    return null;
+  }
+};
+
+const getVimeoId = (value: string) => {
+  try {
+    const url = new URL(value);
+    if (!url.hostname.includes('vimeo.com')) return null;
+    const parts = url.pathname.split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : null;
+  } catch (_err) {
+    return null;
+  }
+};
+
+const resolveHeroEmbedUrl = (value: string) => {
+  const youtubeId = getYouTubeId(value);
+  if (youtubeId) {
+    return `https://www.youtube.com/embed/${youtubeId}?autoplay=1&mute=1&loop=1&playsinline=1&controls=0&rel=0&modestbranding=1&playlist=${youtubeId}`;
+  }
+  const vimeoId = getVimeoId(value);
+  if (vimeoId) {
+    return `https://player.vimeo.com/video/${vimeoId}?autoplay=1&muted=1&loop=1&title=0&byline=0&portrait=0`;
+  }
+  return null;
+};
 
 // ============================================================================
 // Subcomponents
@@ -603,6 +652,15 @@ const LandingPage = () => {
     staleTime: 5 * 60 * 1000,
   });
 
+  const { data: featuresData } = useQuery({
+    queryKey: ['cms', 'features'],
+    queryFn: async () => {
+      const { data } = await api.get('/public/cms/features');
+      return data?.items as CmsFeatureItem[] | undefined;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: howItWorksData } = useQuery({
     queryKey: ['cms', 'howItWorks'],
     queryFn: async () => {
@@ -614,6 +672,14 @@ const LandingPage = () => {
 
   // Use CMS data with fallbacks
   const heroContent = heroData ?? defaultHeroContent;
+  const heroHeadline = heroContent.headline?.trim() || defaultHeroContent.headline;
+  const heroSubheadline = heroContent.subheadline?.trim() || defaultHeroContent.subheadline;
+  const primaryCtaLabel = heroContent.primaryCtaLabel?.trim() || defaultHeroContent.primaryCtaLabel;
+  const secondaryCtaLabel = heroContent.secondaryCtaLabel?.trim() || defaultHeroContent.secondaryCtaLabel;
+  const primaryCtaHref = heroContent.primaryCtaHref?.trim() || defaultHeroContent.primaryCtaHref || '/new-video';
+  const secondaryCtaHref = heroContent.secondaryCtaHref?.trim() || defaultHeroContent.secondaryCtaHref || '/pricing';
+  const heroVideoUrl = heroContent.videoUrl?.trim();
+  const heroEmbedUrl = heroVideoUrl ? resolveHeroEmbedUrl(heroVideoUrl) : null;
   const testimonialsList: CmsTestimonial[] = testimonialsData ?? defaultTestimonials.map((t) => ({
     ...t,
     avatarUrl: undefined,
@@ -621,6 +687,12 @@ const LandingPage = () => {
   const howItWorksSteps: CmsHowItWorksItem[] = howItWorksData ?? defaultHowItWorks.map((s) => ({
     ...s,
     imageUrl: undefined,
+  }));
+  const featuresSource = Array.isArray(featuresData) && featuresData.length > 0 ? featuresData : defaultFeatures;
+  const featuresList: FeatureItem[] = featuresSource.map((item, idx) => ({
+    title: item.title,
+    description: item.description,
+    icon: defaultFeatures[idx]?.icon ?? <IconSparkles />,
   }));
 
   return (
@@ -645,20 +717,20 @@ const LandingPage = () => {
               </PillBadge>
 
               <h1 className="mt-6 text-4xl font-bold tracking-tight text-slate-900 md:text-5xl lg:text-6xl">
-                Create UGC Videos for <TypingAnimation />
+                {heroHeadline}
               </h1>
 
               <p className="mt-6 text-lg text-slate-600 max-w-xl">
-                Upload one product image, choose your settings, and generate platform-ready UGC videos in minutes. No filming. No editing. No waiting.
+                {heroSubheadline}
               </p>
 
               <div className="mt-8 flex flex-wrap gap-4">
-                <Link to="/new-video" className={primaryButton}>
-                  Start Creating Free
+                <Link to={primaryCtaHref} className={primaryButton}>
+                  {primaryCtaLabel}
                   <IconArrowRight className="h-4 w-4" />
                 </Link>
-                <a href="#how-it-works" className={secondaryButton}>
-                  See How It Works
+                <a href={secondaryCtaHref} className={secondaryButton}>
+                  {secondaryCtaLabel}
                 </a>
               </div>
 
@@ -677,16 +749,26 @@ const LandingPage = () => {
             {/* Right: Video Preview */}
             <div className="relative">
               <div className="relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-blue-50 to-purple-50 shadow-2xl shadow-blue-500/10">
-                {heroContent.videoUrl ? (
-                  <video
-                    src={heroContent.videoUrl}
-                    poster={heroContent.videoPoster}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
+                {heroVideoUrl ? (
+                  heroEmbedUrl ? (
+                    <iframe
+                      src={heroEmbedUrl}
+                      title="Hero video"
+                      className="absolute inset-0 h-full w-full"
+                      allow="autoplay; encrypted-media; picture-in-picture"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <video
+                      src={heroVideoUrl}
+                      poster={heroContent.videoPoster}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  )
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/90 shadow-lg">
@@ -695,7 +777,7 @@ const LandingPage = () => {
                   </div>
                 )}
                 {/* Decorative elements (only show if no video) */}
-                {!heroContent.videoUrl && (
+                {!heroVideoUrl && (
                   <>
                     <div className="absolute top-4 left-4 right-4">
                       <div className="h-2 w-16 rounded-full bg-white/50" />
@@ -839,7 +921,7 @@ const LandingPage = () => {
           </div>
 
           <div className="grid gap-8 md:grid-cols-2">
-            {features.map((feature) => (
+            {featuresList.map((feature) => (
               <div key={feature.title} className={`${baseCard} p-8`}>
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50">
                   {feature.icon}
