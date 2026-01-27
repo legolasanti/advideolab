@@ -53,7 +53,7 @@ export const fetchJobs = async (
     if (status) params.status = status;
     if (limit) params.limit = limit;
 
-    const endpoint = scope === 'owner' ? '/api/owner/ugc/jobs' : '/api/ugc/jobs';
+    const endpoint = scope === 'owner' ? '/owner/ugc/jobs' : '/ugc/jobs';
     const response = await api.get<ApiJobsResponse>(endpoint, { params });
     const apiResponse = response.data;
 
