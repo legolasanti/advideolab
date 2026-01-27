@@ -24,7 +24,8 @@ const SettingsPage = () => {
   const [cancelSatisfaction, setCancelSatisfaction] = useState('3');
   const [cancelWouldReturn, setCancelWouldReturn] = useState('maybe');
   const [cancelLoading, setCancelLoading] = useState(false);
-  const [cancelMessage, setCancelMessage] = useState<string | null>(null);
+  const [cancelSuccess, setCancelSuccess] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const planLimit = usage?.plan?.monthly_limit ?? null;
   const isUnlimited = Boolean(usage?.plan?.code) && planLimit === null;
   const needsPayment = tenant?.status === 'pending' || tenant?.paymentStatus === 'payment_pending';
@@ -282,7 +283,8 @@ const SettingsPage = () => {
           </div>
         )}
 
-        {cancelMessage && <p className="text-sm text-emerald-200">{cancelMessage}</p>}
+        {cancelSuccess && <p className="text-sm text-emerald-200">{cancelSuccess}</p>}
+        {cancelError && <p className="text-sm text-rose-300">{cancelError}</p>}
 
         {!cancellationScheduled && (
           <Button
@@ -290,9 +292,10 @@ const SettingsPage = () => {
             variant="danger"
             disabled={cancelLoading || needsPayment}
             onClick={async () => {
-              setCancelMessage(null);
+              setCancelSuccess(null);
+              setCancelError(null);
               if (cancelReason === 'other' && !cancelDetails.trim()) {
-                setCancelMessage('Please share a short note for the "Other" reason.');
+                setCancelError('Please share a short note for the "Other" reason.');
                 return;
               }
               const confirmed = window.confirm(
@@ -308,7 +311,7 @@ const SettingsPage = () => {
                   wouldReturn: cancelWouldReturn,
                 });
                 const effective = data?.effectiveAt ? new Date(data.effectiveAt).toLocaleDateString() : null;
-                setCancelMessage(
+                setCancelSuccess(
                   effective
                     ? `Cancellation scheduled for ${effective}.`
                     : 'Cancellation scheduled. You will receive a confirmation email shortly.',
@@ -316,7 +319,7 @@ const SettingsPage = () => {
                 refreshProfile();
               } catch (err: any) {
                 const serverError = err?.response?.data?.error;
-                setCancelMessage(typeof serverError === 'string' ? serverError : 'Unable to cancel subscription.');
+                setCancelError(typeof serverError === 'string' ? serverError : 'Unable to cancel subscription.');
               } finally {
                 setCancelLoading(false);
               }

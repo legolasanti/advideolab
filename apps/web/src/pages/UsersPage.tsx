@@ -19,17 +19,8 @@ const UsersPage = () => {
   return (
     <section className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Users</h1>
-        <p className="text-slate-500">View who has access to your tenant.</p>
+        <h1 className="text-2xl font-semibold text-white">Users</h1>
       </div>
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-        <p className="font-semibold">Team changes are handled by support</p>
-        <p className="mt-1 text-amber-900">
-          Contact your account manager to add or remove collaborators. Self-service invitations and removals are disabled
-          to protect your workspace permissions.
-        </p>
-      </div>
-
       <div className="rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="mb-4 text-lg font-semibold text-slate-900">Team</h2>
         {isLoading && <p className="text-sm text-slate-500">Loading users...</p>}

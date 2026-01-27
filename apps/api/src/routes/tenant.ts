@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireTenantRole } from '../middleware/auth';
+import { HttpError } from '../middleware/errorHandler';
 import { prisma } from '../lib/prisma';
 import { differenceInMonths } from 'date-fns';
 import { env } from '../config/env';
@@ -11,6 +12,7 @@ import {
   scheduleStripeCancellationForTenant,
 } from '../services/stripe';
 import { sendSubscriptionCancelledEmail } from '../services/email';
+import { computeNextBillingDate } from '../services/quota';
 
 const router = Router();
 
@@ -178,15 +180,41 @@ router.post(
       })
       .parse(req.body);
 
-    const { subscription, billingInterval } = await scheduleStripeCancellationForTenant(req.tenant.id);
-    const subscriptionItem = subscription.items?.data?.[0];
-    const currentPeriodEnd = subscriptionItem?.current_period_end ?? null;
-    const effectiveAt =
-      subscription.cancel_at && Number.isFinite(subscription.cancel_at)
-        ? new Date(subscription.cancel_at * 1000)
-        : currentPeriodEnd
-          ? new Date(currentPeriodEnd * 1000)
-          : null;
+    let billingInterval: 'monthly' | 'annual' = req.tenant.billingInterval ?? 'monthly';
+    let stripeSubscriptionId: string | null = null;
+    let currentPeriodEnd: number | null = null;
+    let effectiveAt: Date | null = null;
+
+    try {
+      const result = await scheduleStripeCancellationForTenant(req.tenant.id);
+      const subscription = result.subscription;
+      billingInterval = result.billingInterval;
+      stripeSubscriptionId = subscription.id;
+      const subscriptionItem = subscription.items?.data?.[0];
+      currentPeriodEnd = subscriptionItem?.current_period_end ?? null;
+      effectiveAt =
+        subscription.cancel_at && Number.isFinite(subscription.cancel_at)
+          ? new Date(subscription.cancel_at * 1000)
+          : currentPeriodEnd
+            ? new Date(currentPeriodEnd * 1000)
+            : null;
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 400) {
+        const message = err.message ?? '';
+        const isRecoverable =
+          message.includes('Stripe is not configured') || message.includes('Subscription not found');
+        if (!isRecoverable) {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    if (!effectiveAt) {
+      effectiveAt = req.tenant.nextBillingDate ?? computeNextBillingDate(req.tenant.billingCycleStart);
+      currentPeriodEnd = currentPeriodEnd ?? Math.floor(effectiveAt.getTime() / 1000);
+    }
 
     const plan = req.tenant.planId
       ? await prisma.plan.findUnique({ where: { id: req.tenant.planId } })
@@ -210,7 +238,7 @@ router.post(
         },
         monthsActive,
         effectiveAt,
-        stripeSubscriptionId: subscription.id,
+        stripeSubscriptionId,
       },
     });
 
@@ -221,7 +249,7 @@ router.post(
         subscriptionPeriodStart: req.tenant.subscriptionPeriodStart ?? subscriptionStart,
         subscriptionPeriodEnd: currentPeriodEnd
           ? new Date(currentPeriodEnd * 1000)
-          : req.tenant.subscriptionPeriodEnd,
+          : effectiveAt ?? req.tenant.subscriptionPeriodEnd,
         billingInterval,
       },
     });

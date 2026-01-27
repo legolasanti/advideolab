@@ -292,11 +292,11 @@ const getVimeoId = (value: string) => {
 const resolveHeroEmbedUrl = (value: string) => {
   const youtubeId = getYouTubeId(value);
   if (youtubeId) {
-    return `https://www.youtube.com/embed/${youtubeId}?autoplay=1&mute=1&loop=1&playsinline=1&controls=0&rel=0&modestbranding=1&playlist=${youtubeId}`;
+    return `https://www.youtube.com/embed/${youtubeId}?autoplay=0&mute=0&playsinline=1&controls=1&rel=0&modestbranding=1`;
   }
   const vimeoId = getVimeoId(value);
   if (vimeoId) {
-    return `https://player.vimeo.com/video/${vimeoId}?autoplay=1&muted=1&loop=1&title=0&byline=0&portrait=0`;
+    return `https://player.vimeo.com/video/${vimeoId}?autoplay=0&muted=0&loop=0&title=0&byline=0&portrait=0`;
   }
   return null;
 };
@@ -725,10 +725,8 @@ const LandingPage = () => {
                     <video
                       src={heroVideoUrl}
                       poster={heroContent.videoPoster}
-                      autoPlay
-                      loop
-                      muted
                       playsInline
+                      controls
                       className="absolute inset-0 w-full h-full object-cover"
                     />
                   )

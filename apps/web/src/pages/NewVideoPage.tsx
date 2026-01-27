@@ -97,7 +97,15 @@ const NewVideoPage = () => {
   } = useUsage(Boolean(token) && !isOwner);
   const jobsScope = isOwner ? 'owner' : 'tenant';
   const jobsEnabled = Boolean(token) && (isOwner ? true : tenantStatus === 'active');
-  const { jobs: recentJobs, error: jobsError } = useJobs(1, 'completed', 20, jobsEnabled, jobsScope);
+  const planCode = isOwner ? 'owner' : usage?.plan?.code ?? null;
+  const recentLimit = (() => {
+    if (planCode === 'starter') return 10;
+    if (planCode === 'growth') return 20;
+    if (planCode === 'scale') return 30;
+    if (planCode === 'owner') return 30;
+    return 20;
+  })();
+  const { jobs: recentJobs, error: jobsError } = useJobs(1, 'completed', recentLimit, jobsEnabled, jobsScope);
 
   const [outputs, setOutputs] = useState<OutputItem[]>([]);
   const [status, setStatus] = useState<'idle' | 'running' | 'done'>('idle');
@@ -132,7 +140,6 @@ const NewVideoPage = () => {
   });
 
   const basePlanLimit = isOwner ? null : usage?.plan?.monthly_limit ?? null;
-  const planCode = isOwner ? 'owner' : usage?.plan?.code ?? null;
   const isUnlimited = isOwner ? true : Boolean(planCode) && basePlanLimit === null;
   const bonusCredits = usage?.bonus_credits ?? 0;
   const planLimit = !isUnlimited && basePlanLimit !== null ? basePlanLimit + bonusCredits : null;
@@ -172,21 +179,19 @@ const NewVideoPage = () => {
   );
 
   const recentClips: RecentClip[] = useMemo(() => {
-    const clips: RecentClip[] = [];
-    recentJobs.forEach((job: Job) => {
-      if (job.videoUrl) {
-        clips.push({
-          id: job.id,
-          url: job.videoUrl,
-          createdAt: job.createdAt,
-          platform: job.platform ?? (job.options?.platformFocus as string | undefined),
-          language: job.language ?? (job.options?.scriptLanguage as string | undefined),
-          vibe: job.options?.vibe as string | undefined,
-        });
-      }
-    });
-    return clips.slice(0, 20);
-  }, [recentJobs]);
+    const clips: RecentClip[] = recentJobs
+      .filter((job: Job) => Boolean(job.videoUrl))
+      .map((job: Job) => ({
+        id: job.id,
+        url: job.videoUrl as string,
+        createdAt: job.createdAt,
+        platform: job.platform ?? (job.options?.platformFocus as string | undefined),
+        language: job.language ?? (job.options?.scriptLanguage as string | undefined),
+        vibe: job.options?.vibe as string | undefined,
+      }))
+      .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+    return clips.slice(0, recentLimit);
+  }, [recentJobs, recentLimit]);
 
   const handleFileSelection = (file: File | null) => {
     if (filePreview) {
@@ -747,7 +752,7 @@ const NewVideoPage = () => {
 
       <div className="rounded-3xl border border-white/5 bg-slate-900/60 p-6 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold text-white">Latest 20 videos</h2>
+          <h2 className="text-lg font-semibold text-white">Latest {recentLimit} videos</h2>
           <p className="text-xs uppercase tracking-widest text-slate-400">Auto-pruned • newest first</p>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">

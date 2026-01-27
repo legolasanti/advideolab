@@ -6,7 +6,7 @@ import os from 'node:os';
 import { requireAuth, requireTenantRole } from '../middleware/auth';
 import { upload } from '../middleware/upload';
 import { prisma } from '../lib/prisma';
-import { uploadBuffer } from '../lib/s3';
+import { downloadBufferByKey, resolveKeyFromPublicUrl, uploadBuffer } from '../lib/s3';
 import { env } from '../config/env';
 import { decrypt } from '../lib/crypto';
 import { completeUgcJobFromUpload, createUgcJob, markUgcJobFailed } from '../services/ugcVideoService';
@@ -106,6 +106,12 @@ const resolveVideoUrl = (job: any) => {
     }
   }
   return undefined;
+};
+
+const buildDownloadName = (job: any) => {
+  const raw = typeof job?.productName === 'string' ? job.productName : job?.id ?? 'ugc-video';
+  const base = raw.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `${base || job.id || 'ugc-video'}.mp4`;
 };
 
 const redactCallbackToken = (job: any) => {
@@ -257,6 +263,37 @@ router.get('/jobs/:jobId', requireAuth, requireTenantRole(['tenant_admin', 'user
   }
   res.json({ ...redactCallbackToken(job), status: normalizeStatus(job.status), videoUrl: resolveVideoUrl(job) });
 } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/jobs/:jobId/download', requireAuth, requireTenantRole(['tenant_admin', 'user']), async (req, res, next) => {
+  try {
+    if (!req.auth?.tenantId) {
+      return res.status(400).json({ error: 'Tenant missing' });
+    }
+    const job = await prisma.job.findFirst({
+      where: { id: req.params.jobId, tenantId: req.auth.tenantId },
+      select: { id: true, productName: true, videoUrl: true, outputs: true },
+    });
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    const videoUrl = resolveVideoUrl(job);
+    if (!videoUrl) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+
+    const key = resolveKeyFromPublicUrl(videoUrl);
+    if (!key) {
+      return res.redirect(videoUrl);
+    }
+
+    const buffer = await downloadBufferByKey(key);
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="${buildDownloadName(job)}"`);
+    return res.send(buffer);
+  } catch (err) {
     next(err);
   }
 });

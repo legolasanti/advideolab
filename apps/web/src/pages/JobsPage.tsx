@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { useSearchParams } from 'react-router-dom';
 import { useJobs } from '../hooks/useJobs';
 import type { Job } from '../hooks/useJobs';
 import { useAuth } from '../providers/AuthProvider';
+import api from '../lib/api';
 import Button from '../components/ui/Button';
 import { JobCardSkeleton } from '../components/ui/Skeleton';
 
@@ -16,6 +17,7 @@ const JobsPage = () => {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<string>('all');
   const [copiedJobId, setCopiedJobId] = useState<string | null>(null);
+  const [downloadingJobId, setDownloadingJobId] = useState<string | null>(null);
   const jobsScope = isOwner ? 'owner' : 'tenant';
   const isEnabled = isOwner ? true : tenantStatus === 'active';
   const { jobs, pagination, isLoading, error } = useJobs(
@@ -29,9 +31,43 @@ const JobsPage = () => {
 
   const totalPages = pagination ? Math.ceil(pagination.total / pagination.pageSize) : 1;
 
+  const sortedJobs = useMemo(() => {
+    const getSortValue = (job: Job) => {
+      const timestamp = Date.parse(job.createdAt ?? '');
+      return Number.isFinite(timestamp) ? timestamp : 0;
+    };
+    return [...jobsList].sort((a, b) => getSortValue(b) - getSortValue(a));
+  }, [jobsList]);
+
   const buildDownloadName = (job: Job) => {
     const base = (job.productName ?? job.id).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     return `${base || job.id}.mp4`;
+  };
+
+  const handleDownload = async (job: Job) => {
+    if (!job.videoUrl) return;
+    const endpoint = isOwner ? `/owner/ugc/jobs/${job.id}/download` : `/ugc/jobs/${job.id}/download`;
+    try {
+      setDownloadingJobId(job.id);
+      const response = await api.get(endpoint, { responseType: 'blob' });
+      const contentType = response.headers?.['content-type'] ?? 'video/mp4';
+      const blob = new Blob([response.data], { type: contentType });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = buildDownloadName(job);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      if (job.videoUrl) {
+        window.open(job.videoUrl, '_blank', 'noopener,noreferrer');
+      }
+    } finally {
+      setDownloadingJobId((current) => (current === job.id ? null : current));
+    }
   };
 
   const handleCopyUrl = async (job: Job) => {
@@ -53,7 +89,7 @@ const JobsPage = () => {
   };
 
   useEffect(() => {
-    if (highlightedJobId && jobsList.some((job) => job.id === highlightedJobId)) {
+    if (highlightedJobId && sortedJobs.some((job) => job.id === highlightedJobId)) {
       const el = document.getElementById(`job-${highlightedJobId}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -61,7 +97,7 @@ const JobsPage = () => {
         setTimeout(() => el.classList.remove('ring-2', 'ring-sky-400'), 2000);
       }
     }
-  }, [highlightedJobId, jobsList]);
+  }, [highlightedJobId, sortedJobs]);
 
   if (!isOwner && tenantStatus && tenantStatus !== 'active') {
     return (
@@ -114,7 +150,9 @@ const JobsPage = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {jobsList.map((job: Job) => {
+            {sortedJobs.map((job: Job, index) => {
+              const pageOffset = pagination ? (page - 1) * pagination.pageSize : 0;
+              const displayIndex = pageOffset + index + 1;
               const mediaSrc = job.videoUrl ?? job.imageUrl ?? null;
               const isProcessing = job.status === 'pending' || job.status === 'processing';
               const statusClass =
@@ -144,7 +182,7 @@ const JobsPage = () => {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white">
-                      {job.productName ?? 'UGC video'} • {new Date(job.createdAt).toLocaleString()}
+                      #{displayIndex} · {job.productName ?? 'UGC video'} • {new Date(job.createdAt).toLocaleString()}
                     </p>
                     <p className="text-xs text-slate-400">
                       {job.language ?? 'multi-lang'} • {job.platform ?? 'multi-platform'} • {job.voiceProfile ?? 'voice'}
@@ -164,14 +202,13 @@ const JobsPage = () => {
                           View video
                         </Button>
                         <Button
-                          as="a"
-                          href={job.videoUrl}
-                          download={buildDownloadName(job)}
                           variant="ghost"
                           size="sm"
                           className="rounded-full"
+                          disabled={downloadingJobId === job.id}
+                          onClick={() => handleDownload(job)}
                         >
-                          Download
+                          {downloadingJobId === job.id ? 'Downloading…' : 'Download'}
                         </Button>
                         <Button
                           variant="ghost"
@@ -207,7 +244,7 @@ const JobsPage = () => {
             })}
           </div>
         )}
-        {!isLoading && pagination && jobsList.length === 0 && <p className="text-sm text-slate-400">No jobs found.</p>}
+        {!isLoading && pagination && sortedJobs.length === 0 && <p className="text-sm text-slate-400">No jobs found.</p>}
         <div className="mt-4 flex items-center justify-between text-sm text-slate-300">
           <Button
             variant="secondary"

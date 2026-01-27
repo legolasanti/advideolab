@@ -13,7 +13,12 @@ const DashboardPage = () => {
   const { isOwner, tenant, tenantStatus, token } = useAuth();
   const { data: usage, isLoading: usageLoading } = useUsage(Boolean(token) && !isOwner);
   const { jobs, isLoading: jobsLoading } = useJobs(1, undefined, undefined, !isOwner);
-  const recentJobs: Job[] = jobs.slice(0, 5);
+  const sortedJobs = [...jobs].sort((a, b) => {
+    const aTime = Date.parse(a.createdAt ?? '') || 0;
+    const bTime = Date.parse(b.createdAt ?? '') || 0;
+    return bTime - aTime;
+  });
+  const recentJobs: Job[] = sortedJobs.slice(0, 5);
   const planLimit = usage?.plan?.monthly_limit ?? null;
   const planCode = usage?.plan?.code ?? null;
   const isUnlimited = Boolean(planCode) && planLimit === null;
