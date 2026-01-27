@@ -88,3 +88,10 @@ Usage:
 
 - Expanded supported languages list to 50+ and updated marketing copy to reflect the new count.
 - Wired CMS-driven content into marketing pages (landing hero text/video, features, pricing subtitle, contact description, product sections).
+
+### 2026-01-27
+
+- Normalized job listing display (client-side ordering, direct download via API, and fallback for missing video URLs).
+- Added UGC job failure callback endpoint and Stripe-cancel fallback logic when subscriptions are missing or Stripe is unconfigured.
+- Updated dashboard/job rail ordering and made latest videos count plan-aware on `/new-video`.
+- Adjusted landing hero embeds to allow sound (no forced mute/autoplay) and simplified Team Members messaging.
