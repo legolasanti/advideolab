@@ -196,8 +196,6 @@ const IconVolumeOff = ({ className = 'h-5 w-5' }: IconProps) => (
 // ============================================================================
 // Data
 // ============================================================================
-const typingWords = ['TikTok', 'Instagram Reels', 'YouTube Shorts', 'Social Ads'];
-
 const logos = ['TikTok', 'Meta', 'YouTube', 'Shopify', 'Amazon', 'Stripe'];
 
 const stats: StatItem[] = [
@@ -306,41 +304,6 @@ const resolveHeroEmbedUrl = (value: string) => {
 // ============================================================================
 // Subcomponents
 // ============================================================================
-const TypingAnimation = () => {
-  const [index, setIndex] = useState(0);
-  const [displayed, setDisplayed] = useState('');
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  useEffect(() => {
-    const word = typingWords[index];
-    const timeout = setTimeout(
-      () => {
-        if (!isDeleting) {
-          setDisplayed(word.slice(0, displayed.length + 1));
-          if (displayed.length === word.length) {
-            setTimeout(() => setIsDeleting(true), 1500);
-          }
-        } else {
-          setDisplayed(word.slice(0, displayed.length - 1));
-          if (displayed.length === 0) {
-            setIsDeleting(false);
-            setIndex((prev) => (prev + 1) % typingWords.length);
-          }
-        }
-      },
-      isDeleting ? 50 : 100
-    );
-    return () => clearTimeout(timeout);
-  }, [displayed, isDeleting, index]);
-
-  return (
-    <span className="text-[#2e90fa]">
-      {displayed}
-      <span className="animate-pulse">|</span>
-    </span>
-  );
-};
-
 const PillBadge = ({ children, variant = 'blue' }: { children: ReactNode; variant?: 'blue' | 'purple' | 'green' }) => {
   const variants = {
     blue: 'bg-blue-50 text-blue-700 border-blue-200',
