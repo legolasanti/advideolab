@@ -116,6 +116,8 @@ const NewVideoPage = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState<number | null>(null);
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [createdJobId, setCreatedJobId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
@@ -264,7 +266,8 @@ const NewVideoPage = () => {
       reset();
       handleFileSelection(null);
       setStatus('done');
-      navigate(`/jobs${data?.jobId ? `?jobId=${data.jobId}` : ''}`);
+      setCreatedJobId(data?.jobId ?? null);
+      setSuccessOpen(true);
     } catch (err: unknown) {
       const fallback = 'Failed to create job';
       const responseData = axios.isAxiosError(err) ? err.response?.data ?? null : null;
@@ -712,6 +715,66 @@ const NewVideoPage = () => {
               </Button>
               <Button className="w-full" onClick={handleConfirm}>
                 Confirm
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {successOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-6 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900 p-8 shadow-2xl text-center">
+            {/* Success Icon with Animation */}
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-green-400 to-emerald-500 shadow-lg shadow-green-500/30 animate-bounce">
+              <svg className="h-10 w-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+
+            {/* Success Message */}
+            <h3 className="text-2xl font-bold text-white">Video Generation Started!</h3>
+            <p className="mt-3 text-slate-300">
+              Your UGC video is being generated. This typically takes 2-5 minutes.
+            </p>
+
+            {/* Progress Indicator */}
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center justify-center gap-3">
+                <div className="relative">
+                  <div className="h-3 w-3 rounded-full bg-indigo-500 animate-pulse"></div>
+                  <div className="absolute inset-0 h-3 w-3 rounded-full bg-indigo-500 animate-ping opacity-75"></div>
+                </div>
+                <span className="text-sm font-medium text-indigo-300">Processing your request...</span>
+              </div>
+            </div>
+
+            {/* Info */}
+            <p className="mt-4 text-xs text-slate-400">
+              You'll receive an email notification when your video is ready.
+            </p>
+
+            {/* Actions */}
+            <div className="mt-6 flex gap-3">
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => {
+                  setSuccessOpen(false);
+                  setCreatedJobId(null);
+                  setStatus('idle');
+                }}
+              >
+                Create Another
+              </Button>
+              <Button
+                className="w-full"
+                onClick={() => {
+                  setSuccessOpen(false);
+                  navigate(`/jobs${createdJobId ? `?jobId=${createdJobId}` : ''}`);
+                }}
+              >
+                View Progress
               </Button>
             </div>
           </div>

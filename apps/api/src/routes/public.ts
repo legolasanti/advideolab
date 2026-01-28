@@ -3,7 +3,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { getCmsSection } from '../services/cms';
-import { getEmailStatus, sendOwnerContactNotification } from '../services/email';
+import { getEmailStatus, sendOwnerContactNotification, sendContactConfirmation } from '../services/email';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { trackMarketingEvent } from '../services/marketing';
@@ -90,8 +90,15 @@ router.post('/contact', contactLimiter, async (req, res) => {
   try {
     const payload = contactSchema.parse(req.body);
     const source = payload.source ?? '/contact';
-    const { notificationEmail: target } = await getEmailStatus();
+    const { configured, notificationEmail: target } = await getEmailStatus();
     console.info('[contact] inbound marketing request', { source, configured: Boolean(target) });
+
+    if (!configured) {
+      console.error('[contact] SMTP not configured');
+      return res.status(500).json({ ok: false, error: 'email_not_configured' });
+    }
+
+    // Send notification to admin
     await sendOwnerContactNotification({
       name: payload.name,
       email: payload.email,
@@ -99,7 +106,14 @@ router.post('/contact', contactLimiter, async (req, res) => {
       message: payload.message,
       source,
     });
-    return res.json({ ok: true, message: 'Thanks! We received your message.' });
+
+    // Send confirmation to user
+    await sendContactConfirmation({
+      email: payload.email,
+      name: payload.name,
+    });
+
+    return res.json({ ok: true, message: 'Thanks! We received your message and sent you a confirmation email.' });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ ok: false, issues: err.issues });

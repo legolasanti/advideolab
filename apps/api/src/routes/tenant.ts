@@ -167,10 +167,22 @@ router.post(
       return res.status(400).json({ error: 'subscription_already_canceled' });
     }
 
-    if (req.tenant.subscriptionCancelAt && req.tenant.subscriptionCancelAt > new Date()) {
+    const now = new Date();
+    const alreadyScheduled = Boolean(req.tenant.subscriptionCancelAt && req.tenant.subscriptionCancelAt > now);
+
+    // Check for existing pending cancellation record to prevent duplicates
+    const existingCancellation = await prisma.subscriptionCancellation.findFirst({
+      where: {
+        tenantId: req.tenant.id,
+        canceledAt: null, // Still pending (not yet executed)
+      },
+      orderBy: { requestedAt: 'desc' },
+    });
+
+    if (existingCancellation) {
       return res.json({
         ok: true,
-        effectiveAt: req.tenant.subscriptionCancelAt,
+        effectiveAt: existingCancellation.effectiveAt,
         alreadyScheduled: true,
         emailSent: true,
       });
@@ -188,31 +200,33 @@ router.post(
     let billingInterval: 'monthly' | 'annual' = req.tenant.billingInterval ?? 'monthly';
     let stripeSubscriptionId: string | null = null;
     let currentPeriodEnd: number | null = null;
-    let effectiveAt: Date | null = null;
+    let effectiveAt: Date | null = alreadyScheduled ? req.tenant.subscriptionCancelAt ?? null : null;
 
-    try {
-      const result = await scheduleStripeCancellationForTenant(req.tenant.id);
-      const subscription = result.subscription;
-      billingInterval = result.billingInterval;
-      stripeSubscriptionId = subscription.id;
-      const subscriptionItem = subscription.items?.data?.[0];
-      currentPeriodEnd = subscriptionItem?.current_period_end ?? null;
-      effectiveAt =
-        subscription.cancel_at && Number.isFinite(subscription.cancel_at)
-          ? new Date(subscription.cancel_at * 1000)
-          : currentPeriodEnd
-            ? new Date(currentPeriodEnd * 1000)
-            : null;
-    } catch (err) {
-      if (err instanceof HttpError && err.status === 400) {
-        const message = err.message ?? '';
-        const isRecoverable =
-          message.includes('Stripe is not configured') || message.includes('Subscription not found');
-        if (!isRecoverable) {
+    if (!alreadyScheduled) {
+      try {
+        const result = await scheduleStripeCancellationForTenant(req.tenant.id);
+        const subscription = result.subscription;
+        billingInterval = result.billingInterval;
+        stripeSubscriptionId = subscription.id;
+        const subscriptionItem = subscription.items?.data?.[0];
+        currentPeriodEnd = subscriptionItem?.current_period_end ?? null;
+        effectiveAt =
+          subscription.cancel_at && Number.isFinite(subscription.cancel_at)
+            ? new Date(subscription.cancel_at * 1000)
+            : currentPeriodEnd
+              ? new Date(currentPeriodEnd * 1000)
+              : null;
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 400) {
+          const message = err.message ?? '';
+          const isRecoverable =
+            message.includes('Stripe is not configured') || message.includes('Subscription not found');
+          if (!isRecoverable) {
+            throw err;
+          }
+        } else {
           throw err;
         }
-      } else {
-        throw err;
       }
     }
 
@@ -229,46 +243,48 @@ router.post(
     const subscriptionStart = req.tenant.subscriptionPeriodStart ?? req.tenant.createdAt ?? new Date();
     const monthsActive = Math.max(1, differenceInMonths(new Date(), subscriptionStart) + 1);
 
-    await prisma.subscriptionCancellation.create({
-      data: {
-        tenantId: req.tenant.id,
-        userId: req.auth?.userId ?? null,
-        planCode,
-        billingInterval,
-        reason: body.reason,
-        details: {
-          details: body.details ?? null,
-          satisfaction: body.satisfaction ?? null,
-          wouldReturn: body.wouldReturn ?? null,
-        },
-        monthsActive,
-        effectiveAt,
-        stripeSubscriptionId,
-      },
-    });
-
-    await prisma.tenant.update({
-      where: { id: req.tenant.id },
-      data: {
-        subscriptionCancelAt: effectiveAt,
-        subscriptionPeriodStart: req.tenant.subscriptionPeriodStart ?? subscriptionStart,
-        subscriptionPeriodEnd: currentPeriodEnd
-          ? new Date(currentPeriodEnd * 1000)
-          : effectiveAt ?? req.tenant.subscriptionPeriodEnd,
-        billingInterval,
-      },
-    });
-
-    await prisma.audit.create({
-      data: {
-        tenantId: req.tenant.id,
-        action: 'subscription_cancel_requested',
-        details: {
+    if (!alreadyScheduled) {
+      await prisma.subscriptionCancellation.create({
+        data: {
+          tenantId: req.tenant.id,
+          userId: req.auth?.userId ?? null,
+          planCode,
+          billingInterval,
           reason: body.reason,
-          effectiveAt: effectiveAt?.toISOString() ?? null,
+          details: {
+            details: body.details ?? null,
+            satisfaction: body.satisfaction ?? null,
+            wouldReturn: body.wouldReturn ?? null,
+          },
+          monthsActive,
+          effectiveAt,
+          stripeSubscriptionId,
         },
-      },
-    });
+      });
+
+      await prisma.tenant.update({
+        where: { id: req.tenant.id },
+        data: {
+          subscriptionCancelAt: effectiveAt,
+          subscriptionPeriodStart: req.tenant.subscriptionPeriodStart ?? subscriptionStart,
+          subscriptionPeriodEnd: currentPeriodEnd
+            ? new Date(currentPeriodEnd * 1000)
+            : effectiveAt ?? req.tenant.subscriptionPeriodEnd,
+          billingInterval,
+        },
+      });
+
+      await prisma.audit.create({
+        data: {
+          tenantId: req.tenant.id,
+          action: 'subscription_cancel_requested',
+          details: {
+            reason: body.reason,
+            effectiveAt: effectiveAt?.toISOString() ?? null,
+          },
+        },
+      });
+    }
 
     let adminUser: { email: string } | null = null;
     if (req.auth?.userId) {
@@ -291,20 +307,32 @@ router.post(
     }
 
     try {
-      await prisma.adminNotification.create({
-        data: {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const existing = await prisma.adminNotification.findFirst({
+        where: {
           tenantId: req.tenant.id,
           type: 'subscription_cancel',
-          message: `${req.tenant.name} requested cancellation (${planName}).`,
-          details: {
-            tenantId: req.tenant.id,
-            planCode,
-            effectiveAt: effectiveAt?.toISOString() ?? null,
-            reason: body.reason,
-            actorUserId: req.auth?.userId ?? null,
-          },
+          createdAt: { gte: cutoff },
         },
+        select: { id: true },
       });
+      if (!existing) {
+        await prisma.adminNotification.create({
+          data: {
+            tenantId: req.tenant.id,
+            type: 'subscription_cancel',
+            message: `${req.tenant.name} requested cancellation (${planName}).`,
+            details: {
+              tenantId: req.tenant.id,
+              planCode,
+              effectiveAt: effectiveAt?.toISOString() ?? null,
+              reason: body.reason,
+              actorUserId: req.auth?.userId ?? null,
+              alreadyScheduled,
+            },
+          },
+        });
+      }
     } catch (err) {
       console.warn('[billing] failed to create admin notification');
     }
@@ -314,6 +342,7 @@ router.post(
       effectiveAt,
       billingInterval,
       emailSent,
+      alreadyScheduled,
     });
   },
 );
@@ -328,6 +357,10 @@ router.post(
     }
 
     const { sessionId } = z.object({ sessionId: z.string().min(1) }).parse(req.body);
+
+    if (req.tenant.status === 'active' && req.tenant.paymentStatus === 'active_paid') {
+      return res.json({ tenant: req.tenant });
+    }
 
     const updated = await activateTenantFromCheckoutSessionId(req.tenant.id, sessionId);
     res.json({ tenant: updated });

@@ -15,16 +15,19 @@ export const howItWorks = [
     title: 'Upload a product image',
     description: 'Drag & drop a single photo.',
     step: '01',
+    imageUrl: '/how-it-works/step-1.png',
   },
   {
     title: 'Customize the voice & vibe',
     description: 'Pick language, platform, voice profile, vibe, creator persona, and CTA.',
     step: '02',
+    imageUrl: '/how-it-works/step-2.png',
   },
   {
     title: 'Generate multiple videos',
     description: 'Choose how many variations to render and download when ready.',
     step: '03',
+    imageUrl: '/how-it-works/step-3.png',
   },
 ];
 
@@ -165,20 +168,20 @@ export const pricingSubtitle =
   'Choose a plan based on monthly output and how many recent videos you want saved. Upgrade anytime.';
 
 export const contactDefaults = {
-  targetEmail: 'hello@ugc.studio',
+  targetEmail: 'hello@advideolab.com',
 };
 
 export const aboutContent = {
   mission:
-    'We built UGC Studio to help brands generate high-converting UGC videos from a single product image—without filming or editing.',
+    'We built AdvideoLab to help e-commerce brands generate high-converting UGC videos from a single product image—without filming, editing, or agency timelines.',
   founder:
-    'In 2025 we saw teams burning days coordinating shoots, waiting on edits, and resizing for every channel. UGC Studio makes it demo-first: upload one image, choose your settings, and generate variations fast.',
+    'In 2025 we saw how hard it was for DTC teams to consistently source UGC. We planned the product, then started building the first version to make UGC creation fast, affordable, and repeatable for every product.',
   focus:
-    'Our focus is simple: control and speed. Choose language, platform, voice, vibe, creator persona, and CTA—then generate platform-ready videos.',
-  values: ['Demo-first UX', 'Creative control', 'Speed to publish'],
+    'By the end of January 2026 we had a production-ready platform that makes UGC generation simple: upload one image, choose language & platform, and generate ready-to-publish videos in minutes.',
+  values: ['Simple workflows', 'Affordable at scale', 'Speed to publish'],
   timeline: [
-    { year: '2025', text: 'UGC Studio launched to replace manual creator briefing and asset wrangling.' },
-    { year: '2026', text: 'Languages, creative controls, and batch generation expanded.' },
+    { year: '2025', text: 'Planned the product and started coding a simpler, cheaper way to generate UGC.' },
+    { year: '2026', text: 'January: AdvideoLab became production-ready with multi-language, multi-platform outputs.' },
   ],
 };
 
@@ -188,13 +191,13 @@ export const contactCopy = {
 };
 
 export const legalDefaults = {
-  lastUpdated: '2025-12-15',
+  lastUpdated: '2026-01-28',
   company: {
-    name: 'Reklamedia Ceviz',
+    name: 'Reklamedia',
     country: 'Norway',
     city: '',
     address: '',
-    contactEmail: 'privacy@reklamedia.no',
+    contactEmail: 'legal@advideolab.com',
   },
   social: {
     linkedin: '',

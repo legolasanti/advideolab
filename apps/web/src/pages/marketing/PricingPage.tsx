@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Seo from '../../components/Seo';
 import { getSiteUrl } from '../../lib/urls';
 import { PLAN_DEFINITIONS } from '../../lib/plans';
 import { formatSupportedLanguages } from '../../lib/languages';
 import { pricingSubtitle } from '../../content/marketing';
 import { useCmsSection } from '../../hooks/useCmsSection';
+import { useOptionalAuth } from '../../providers/AuthProvider';
 
 const baseCard = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
 
@@ -21,6 +22,24 @@ const PricingPage = () => {
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'annual'>('monthly');
   const isAnnual = billingInterval === 'annual';
   const { data: pricingCms } = useCmsSection('pricing', { subtitle: pricingSubtitle });
+  const auth = useOptionalAuth();
+  const token = auth?.token;
+  const tenantStatus = auth?.tenantStatus;
+  const isOwner = auth?.isOwner ?? false;
+  const tenant = auth?.tenant;
+  const navigate = useNavigate();
+
+  // Check if user has an active subscription
+  const hasActiveSubscription = token && !isOwner && tenantStatus === 'active' && tenant?.planCode;
+
+  // Handle plan selection - redirect to upgrade if already subscribed
+  const handlePlanSelect = (planCode: string) => {
+    if (hasActiveSubscription) {
+      navigate('/settings?upgrade=1');
+    } else {
+      navigate(`/signup?plan=${planCode}${isAnnual ? '&interval=annual' : ''}`);
+    }
+  };
   const subtitle =
     typeof pricingCms.subtitle === 'string' && pricingCms.subtitle.trim().length > 0
       ? pricingCms.subtitle
@@ -139,16 +158,16 @@ const PricingPage = () => {
                 </ul>
 
                 <div className="mt-8">
-                  <Link
-                    to={`/signup?plan=${plan.code}${isAnnual ? '&interval=annual' : ''}`}
+                  <button
+                    onClick={() => handlePlanSelect(plan.code)}
                     className={`inline-flex w-full items-center justify-center rounded-full px-4 py-3.5 text-sm font-semibold transition ${
                       plan.popular
                         ? 'bg-[#2e90fa] text-white hover:bg-[#1a7ae8] shadow-lg shadow-blue-500/20'
                         : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400'
                     }`}
                   >
-                    {plan.cta}
-                  </Link>
+                    {hasActiveSubscription ? 'Upgrade Plan' : plan.cta}
+                  </button>
                 </div>
               </article>
             );
@@ -213,16 +232,16 @@ const PricingPage = () => {
                   <td className="px-6 py-6" />
                   {plans.map((plan) => (
                     <td key={plan.code} className={`px-6 py-6 ${plan.popular ? 'bg-blue-50/50' : ''}`}>
-                      <Link
-                        to={`/signup?plan=${plan.code}${isAnnual ? '&interval=annual' : ''}`}
+                      <button
+                        onClick={() => handlePlanSelect(plan.code)}
                         className={`inline-flex w-full items-center justify-center rounded-full px-4 py-3 text-sm font-semibold transition ${
                           plan.popular
                             ? 'bg-[#2e90fa] text-white hover:bg-[#1a7ae8] shadow-lg shadow-blue-500/20'
                             : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
                         }`}
                       >
-                        {plan.cta}
-                      </Link>
+                        {hasActiveSubscription ? 'Upgrade Plan' : plan.cta}
+                      </button>
                     </td>
                   ))}
                 </tr>
@@ -258,14 +277,14 @@ const PricingPage = () => {
           <div className="rounded-3xl bg-gradient-to-r from-[#2e90fa] to-blue-600 px-8 py-16 text-center">
             <h2 className="text-3xl font-bold text-white">Ready to start creating?</h2>
             <p className="mt-4 text-lg text-blue-100 max-w-2xl mx-auto">
-              Choose your plan and start generating UGC videos in minutes. No credit card required to explore.
+              Choose your plan and start generating UGC videos in minutes. Plans start at $69/month.
             </p>
             <div className="mt-8">
               <Link
                 to="/signup"
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-8 py-4 text-sm font-semibold text-[#2e90fa] shadow-lg transition hover:bg-blue-50"
               >
-                Get Started Free
+                Generate your first UGC video
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M5 12h14" />
                   <path d="m12 5 7 7-7 7" />

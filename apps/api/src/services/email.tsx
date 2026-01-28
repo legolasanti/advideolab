@@ -65,6 +65,61 @@ const escapeHtml = (value: string) =>
 
 const escapeAttr = escapeHtml;
 
+// Professional email template wrapper with Advideolab branding
+const wrapEmailHtml = (content: string): string => `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Advideolab</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); overflow: hidden;">
+          <!-- Header with Logo -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 32px 40px; text-align: center;">
+              <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;">Advideolab</h1>
+              <p style="margin: 8px 0 0 0; font-size: 14px; color: rgba(255, 255, 255, 0.85);">AI-Powered UGC Video Generation</p>
+            </td>
+          </tr>
+          <!-- Content -->
+          <tr>
+            <td style="padding: 40px;">
+              <div style="font-size: 15px; line-height: 1.6; color: #334155;">
+                ${content}
+              </div>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; padding: 32px 40px; border-top: 1px solid #e2e8f0;">
+              <table role="presentation" style="width: 100%;">
+                <tr>
+                  <td style="text-align: center;">
+                    <p style="margin: 0 0 16px 0; font-size: 14px; font-weight: 600; color: #1e293b;">Advideolab Team</p>
+                    <p style="margin: 0 0 8px 0; font-size: 13px; color: #64748b;">
+                      <a href="https://advideolab.com" style="color: #6366f1; text-decoration: none;">advideolab.com</a>
+                    </p>
+                    <p style="margin: 16px 0 0 0; font-size: 12px; color: #94a3b8;">
+                      © ${new Date().getFullYear()} Advideolab. All rights reserved.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+
 const sanitizeUrl = (raw: string, allowedProtocols: ReadonlySet<string> = new Set(['https:', 'http:'])) => {
   try {
     const parsed = new URL(raw);
@@ -85,8 +140,8 @@ const resolveEmailConfig = async (): Promise<ResolvedEmailConfig> => {
   try {
     pass = system?.smtpPassEncrypted ? decrypt(system.smtpPassEncrypted) : normalizeOptional(env.SMTP_PASS);
   } catch (err) {
-    console.warn('[email] failed to decrypt SMTP password');
-    pass = null;
+    console.warn('[email] failed to decrypt SMTP password, falling back to env');
+    pass = normalizeOptional(env.SMTP_PASS);
   }
   const from = normalizeOptional(system?.emailFrom) ?? normalizeOptional(env.EMAIL_FROM);
   const notificationEmail =
@@ -168,6 +223,9 @@ type EmailTemplate = {
   html: string;
 };
 
+// Button style for email CTAs
+const buttonStyle = `display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;`;
+
 const buildCustomerPendingEmail = ({
   companyName,
   adminEmail,
@@ -191,15 +249,12 @@ const buildCustomerPendingEmail = ({
   const safeAdminEmail = escapeHtml(adminEmail);
   const safePlan = escapeHtml(planName);
   const safeDashboardHref = escapeAttr(sanitizeUrl(dashboardUrl) ?? '#');
-  const safeDashboardLabel = escapeHtml(dashboardUrl);
   const safePaymentUrl = paymentUrl ? sanitizeUrl(paymentUrl) : null;
   const safePaymentHref = escapeAttr(safePaymentUrl ?? '#');
-  const safePaymentLabel = paymentUrl ? escapeHtml(paymentUrl) : '';
   const safeVerifyUrl = verificationUrl ? sanitizeUrl(verificationUrl) : null;
   const safeVerifyHref = escapeAttr(safeVerifyUrl ?? '#');
-  const safeVerifyLabel = verificationUrl ? escapeHtml(verificationUrl) : '';
 
-  const subject = 'Welcome — your workspace is pending approval';
+  const subject = 'Welcome to Advideolab — Your Workspace is Ready';
   const verificationLine = verificationUrl
     ? `Verify your email to continue: ${verificationUrl}`
     : '';
@@ -209,27 +264,32 @@ const buildCustomerPendingEmail = ({
   const text = [
     `Hi ${adminEmail},`,
     '',
-    `Thanks for creating ${companyName} on UGC Studio. You requested the ${planName} plan (${planMonthlyVideos} videos/mo for $${planPriceUsd}/month).`,
+    `Thanks for creating ${companyName} on Advideolab! You requested the ${planName} plan (${planMonthlyVideos} videos/mo for $${planPriceUsd}/month).`,
     ...(verificationLine ? [verificationLine] : []),
     paymentLine,
     `You can log in anytime at ${dashboardUrl}.`,
     '',
-    '— The UGC Studio Team',
+    'Best regards,',
+    'The Advideolab Team',
   ].join('\n');
+
   const verificationHtml = verificationUrl
-    ? `<p>Verify your email to continue: <a href="${safeVerifyHref}">${safeVerifyLabel}</a></p>`
+    ? `<p style="margin: 20px 0;"><a href="${safeVerifyHref}" style="${buttonStyle}">Verify Your Email</a></p>`
     : '';
   const paymentHtml = paymentUrl
-    ? `<p>Complete payment here: <a href="${safePaymentHref}">${safePaymentLabel}</a></p>`
-    : `<p>Complete payment from your dashboard: <a href="${safeDashboardHref}">${safeDashboardLabel}</a></p>`;
-  const html = `
+    ? `<p style="margin: 20px 0;"><a href="${safePaymentHref}" style="${buttonStyle}">Complete Payment</a></p>`
+    : `<p style="margin: 20px 0;"><a href="${safeDashboardHref}" style="${buttonStyle}">Go to Dashboard</a></p>`;
+
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">Welcome to Advideolab!</h2>
     <p>Hi ${safeAdminEmail},</p>
-    <p>Thanks for creating <strong>${safeCompany}</strong> on UGC Studio. You requested the <strong>${safePlan}</strong> plan (${planMonthlyVideos} videos/mo for $${planPriceUsd}/month).</p>
+    <p>Thanks for creating <strong>${safeCompany}</strong> on Advideolab! You requested the <strong>${safePlan}</strong> plan (${planMonthlyVideos} videos/mo for $${planPriceUsd}/month).</p>
     ${verificationHtml}
     ${paymentHtml}
-    <p>You can log in anytime at <a href="${safeDashboardHref}">${safeDashboardLabel}</a>.</p>
-    <p>— The UGC Studio Team</p>
-  `;
+    <p style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 14px;">
+      If you have any questions, feel free to reply to this email.
+    </p>
+  `);
   return { subject, text, html };
 };
 
@@ -242,22 +302,23 @@ const buildEmailVerificationEmail = ({
 }): EmailTemplate => {
   const safeEmail = escapeHtml(email);
   const safeVerifyHref = escapeAttr(sanitizeUrl(verifyUrl) ?? '#');
-  const safeVerifyLabel = escapeHtml(verifyUrl);
-  const subject = 'Verify your email to activate your workspace';
+  const subject = 'Verify Your Email — Advideolab';
   const text = [
     `Hi ${email},`,
     '',
-    'Thanks for signing up for UGC Studio.',
+    'Thanks for signing up for Advideolab!',
     `Verify your email to continue: ${verifyUrl}`,
     '',
-    '— The UGC Studio Team',
+    'Best regards,',
+    'The Advideolab Team',
   ].join('\n');
-  const html = `
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">Verify Your Email</h2>
     <p>Hi ${safeEmail},</p>
-    <p>Thanks for signing up for UGC Studio.</p>
-    <p>Verify your email to continue: <a href="${safeVerifyHref}">${safeVerifyLabel}</a></p>
-    <p>— The UGC Studio Team</p>
-  `;
+    <p>Thanks for signing up for Advideolab! Please verify your email address to activate your account.</p>
+    <p style="margin: 28px 0;"><a href="${safeVerifyHref}" style="${buttonStyle}">Verify Email Address</a></p>
+    <p style="color: #64748b; font-size: 14px;">If you didn't create an account, you can safely ignore this email.</p>
+  `);
   return { subject, text, html };
 };
 
@@ -280,7 +341,7 @@ const buildOwnerNewSignupEmail = ({
   tenantsUrl: string;
   requestedAt: Date;
 }): EmailTemplate => {
-  const subject = `[UGC Studio] New customer signup`;
+  const subject = `[Advideolab] New Customer Signup: ${companyName}`;
   const adminLine = adminName ? `${adminName} <${adminEmail}>` : adminEmail;
   const requestedLabel = requestedAt.toLocaleString();
   const safeCompany = escapeHtml(companyName);
@@ -288,17 +349,23 @@ const buildOwnerNewSignupEmail = ({
   const safeAdminLine = escapeHtml(adminLine);
   const safeTenantsHref = escapeAttr(sanitizeUrl(tenantsUrl) ?? '#');
   const text = [
+    `New customer signup!`,
+    '',
     `${companyName} requested the ${planName} plan (${planMonthlyVideos} videos/mo at $${planPriceUsd}/mo).`,
     `Admin: ${adminLine}`,
     `Requested at: ${requestedLabel}`,
     `Review in the owner console: ${tenantsUrl}`,
   ].join('\n');
-  const html = `
-    <p><strong>${safeCompany}</strong> requested the <strong>${safePlan}</strong> plan (${planMonthlyVideos} videos/mo at $${planPriceUsd}/mo).</p>
-    <p>Admin: ${safeAdminLine}</p>
-    <p>Requested at: ${requestedLabel}</p>
-    <p><a href="${safeTenantsHref}">Open owner console →</a></p>
-  `;
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">New Customer Signup</h2>
+    <div style="background-color: #f8fafc; border-radius: 12px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 12px 0;"><strong>Company:</strong> ${safeCompany}</p>
+      <p style="margin: 0 0 12px 0;"><strong>Plan:</strong> ${safePlan} (${planMonthlyVideos} videos/mo at $${planPriceUsd}/mo)</p>
+      <p style="margin: 0 0 12px 0;"><strong>Admin:</strong> ${safeAdminLine}</p>
+      <p style="margin: 0;"><strong>Requested at:</strong> ${requestedLabel}</p>
+    </div>
+    <p style="margin: 24px 0;"><a href="${safeTenantsHref}" style="${buttonStyle}">Open Admin Console</a></p>
+  `);
   return { subject, text, html };
 };
 
@@ -317,26 +384,33 @@ const buildTenantActivatedEmail = ({
   nextBillingDateLabel?: string;
   dashboardUrl: string;
 }): EmailTemplate => {
-  const subject = 'Your workspace is now active';
+  const subject = 'Your Workspace is Now Active — Advideolab';
   const nextBilling = nextBillingDateLabel ? `Your next billing date is ${nextBillingDateLabel}.` : '';
   const safeCompany = escapeHtml(companyName);
   const safePlan = escapeHtml(planName);
   const safeDashboardHref = escapeAttr(sanitizeUrl(dashboardUrl) ?? '#');
   const text = [
-    `Great news – ${companyName} is now active on the ${planName} plan (${planMonthlyVideos} videos/mo for $${planPriceUsd}/month).`,
+    `Great news!`,
+    '',
+    `${companyName} is now active on the ${planName} plan (${planMonthlyVideos} videos/mo for $${planPriceUsd}/month).`,
     nextBilling,
     `Start creating videos: ${dashboardUrl}`,
     '',
-    '— The UGC Studio Team',
+    'Best regards,',
+    'The Advideolab Team',
   ]
     .filter(Boolean)
     .join('\n');
-  const html = `
-    <p>Great news – <strong>${safeCompany}</strong> is now active on the <strong>${safePlan}</strong> plan (${planMonthlyVideos} videos/mo for $${planPriceUsd}/month).</p>
-    ${nextBilling ? `<p>${escapeHtml(nextBilling)}</p>` : ''}
-    <p><a href="${safeDashboardHref}">Launch UGC Studio →</a></p>
-    <p>— The UGC Studio Team</p>
-  `;
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">Your Workspace is Active!</h2>
+    <p>Great news! <strong>${safeCompany}</strong> is now active on the <strong>${safePlan}</strong> plan.</p>
+    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #166534;">Plan Details</p>
+      <p style="margin: 0; color: #166534;">${planMonthlyVideos} videos/month • $${planPriceUsd}/month</p>
+      ${nextBilling ? `<p style="margin: 8px 0 0 0; color: #166534; font-size: 14px;">${escapeHtml(nextBilling)}</p>` : ''}
+    </div>
+    <p style="margin: 24px 0;"><a href="${safeDashboardHref}" style="${buttonStyle}">Start Creating Videos</a></p>
+  `);
   return { subject, text, html };
 };
 
@@ -353,7 +427,7 @@ const buildOwnerContactEmail = ({
   message: string;
   source: string;
 }): EmailTemplate => {
-  const subject = `[UGC Studio] New contact message`;
+  const subject = `[Advideolab] New Contact Message from ${name}`;
   const text = [`Name: ${name}`, `Email: ${email}`, `Company: ${company ?? '—'}`, `Source: ${source}`, '', message].join('\n');
   const safeName = escapeHtml(name);
   const safeEmail = escapeHtml(email);
@@ -361,13 +435,52 @@ const buildOwnerContactEmail = ({
   const safeCompany = company ? escapeHtml(company) : '—';
   const safeSource = escapeHtml(source);
   const safeMessage = escapeHtml(message).replace(/\n/g, '<br />');
-  const html = `
-    <p><strong>${safeName}</strong> sent a new message from ${safeSource}.</p>
-    <p>Email: <a href="${mailtoHref}">${safeEmail}</a></p>
-    <p>Company: ${safeCompany}</p>
-    <p><strong>Message</strong></p>
-    <p>${safeMessage}</p>
-  `;
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">New Contact Message</h2>
+    <div style="background-color: #f8fafc; border-radius: 12px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 12px 0;"><strong>Name:</strong> ${safeName}</p>
+      <p style="margin: 0 0 12px 0;"><strong>Email:</strong> <a href="${mailtoHref}" style="color: #6366f1;">${safeEmail}</a></p>
+      <p style="margin: 0 0 12px 0;"><strong>Company:</strong> ${safeCompany}</p>
+      <p style="margin: 0;"><strong>Source:</strong> ${safeSource}</p>
+    </div>
+    <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 12px 0; font-weight: 600; color: #1e293b;">Message:</p>
+      <p style="margin: 0; color: #475569;">${safeMessage}</p>
+    </div>
+    <p><a href="${mailtoHref}" style="${buttonStyle}">Reply to ${safeName}</a></p>
+  `);
+  return { subject, text, html };
+};
+
+const buildContactConfirmationEmail = ({
+  name,
+}: {
+  name: string;
+}): EmailTemplate => {
+  const safeName = escapeHtml(name);
+  const subject = 'We Received Your Message — Advideolab';
+  const text = [
+    `Hi ${name},`,
+    '',
+    'Thank you for reaching out to Advideolab! We have received your message and will get back to you as soon as possible.',
+    '',
+    'In the meantime, feel free to explore our platform and create amazing UGC videos.',
+    '',
+    'Best regards,',
+    'The Advideolab Team',
+  ].join('\n');
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">Thank You for Contacting Us!</h2>
+    <p>Hi ${safeName},</p>
+    <p>Thank you for reaching out to Advideolab! We have received your message and will get back to you as soon as possible.</p>
+    <p>In the meantime, feel free to explore our platform and create amazing UGC videos.</p>
+    <div style="background-color: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 20px; margin: 24px 0;">
+      <p style="margin: 0; color: #0369a1; font-size: 14px;">
+        <strong>Our typical response time:</strong> Within 24 hours on business days.
+      </p>
+    </div>
+    <p style="margin-top: 24px;"><a href="https://advideolab.com" style="${buttonStyle}">Visit Our Website</a></p>
+  `);
   return { subject, text, html };
 };
 
@@ -386,7 +499,7 @@ const buildSubscriptionCancelledEmail = ({
   const safePlan = escapeHtml(planName);
   const safeEffective = escapeHtml(effectiveDateLabel);
   const safeDashboardHref = escapeAttr(sanitizeUrl(dashboardUrl) ?? '#');
-  const subject = 'Your subscription has been scheduled to cancel';
+  const subject = 'Subscription Cancellation Confirmed — Advideolab';
   const text = [
     `We have received your cancellation request for ${companyName}.`,
     `Plan: ${planName}`,
@@ -395,16 +508,20 @@ const buildSubscriptionCancelledEmail = ({
     `You will continue to have access until that date, and no further charges will be made afterward.`,
     `If you change your mind, you can re-subscribe from your dashboard: ${dashboardUrl}`,
     '',
-    '— The UGC Studio Team',
+    'Best regards,',
+    'The Advideolab Team',
   ].join('\n');
-  const html = `
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">Cancellation Confirmed</h2>
     <p>We have received your cancellation request for <strong>${safeCompany}</strong>.</p>
-    <p>Plan: <strong>${safePlan}</strong></p>
-    <p>Your subscription will end on <strong>${safeEffective}</strong>.</p>
+    <div style="background-color: #fef3c7; border: 1px solid #fcd34d; border-radius: 12px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 8px 0;"><strong>Plan:</strong> ${safePlan}</p>
+      <p style="margin: 0;"><strong>Access until:</strong> ${safeEffective}</p>
+    </div>
     <p>You will continue to have access until that date, and no further charges will be made afterward.</p>
-    <p><a href="${safeDashboardHref}">Manage your subscription →</a></p>
-    <p>— The UGC Studio Team</p>
-  `;
+    <p>We're sorry to see you go! If you change your mind, you can always re-subscribe from your dashboard.</p>
+    <p style="margin: 24px 0;"><a href="${safeDashboardHref}" style="${buttonStyle}">Manage Subscription</a></p>
+  `);
   return { subject, text, html };
 };
 
@@ -554,14 +671,35 @@ export const sendOwnerContactNotification = async ({
   source: string;
 }) => {
   const { notificationEmail: target } = await resolveEmailConfig();
-  if (!target) return;
+  if (!target) {
+    throw new Error('Notification email not configured');
+  }
   const template = buildOwnerContactEmail({ name, email, company, message, source });
-  await sendMail({
+  const sent = await sendMail({
     to: target,
     subject: template.subject,
     text: template.text,
     html: template.html,
   }, 'contact');
+  if (!sent) {
+    throw new Error('Failed to send contact notification');
+  }
+};
+
+export const sendContactConfirmation = async ({
+  email,
+  name,
+}: {
+  email: string;
+  name: string;
+}) => {
+  const template = buildContactConfirmationEmail({ name });
+  return sendMail({
+    to: email,
+    subject: template.subject,
+    text: template.text,
+    html: template.html,
+  }, 'contact_confirmation');
 };
 
 const buildJobCompletedEmail = ({
@@ -575,7 +713,7 @@ const buildJobCompletedEmail = ({
   videoUrl: string;
   dashboardUrl: string;
 }): EmailTemplate => {
-  const subject = sanitizeHeaderValue(`Your video is ready: ${productName}`);
+  const subject = sanitizeHeaderValue(`Your Video is Ready: ${productName}`);
   const safeProduct = escapeHtml(productName);
   const safeVideoHref = escapeAttr(sanitizeUrl(videoUrl) ?? '#');
   const safeDashboardHref = escapeAttr(sanitizeUrl(dashboardUrl) ?? '#');
@@ -590,15 +728,18 @@ const buildJobCompletedEmail = ({
     `Or visit your dashboard:`,
     dashboardUrl,
     '',
-    '— The UGC Studio Team',
+    'Best regards,',
+    'The Advideolab Team',
   ].join('\n');
-  const html = `
-    <p><strong>Great news!</strong></p>
-    <p>Your UGC video for <strong>"${safeProduct}"</strong> has been generated successfully.</p>
-    <p><a href="${safeVideoHref}" style="display: inline-block; background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; margin-top: 8px;">View Your Video →</a></p>
-    <p style="margin-top: 16px;">Or <a href="${safeDashboardHref}">visit your dashboard</a> to see all your videos.</p>
-    <p style="margin-top: 24px; color: #64748b;">— The UGC Studio Team</p>
-  `;
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">Your Video is Ready!</h2>
+    <p>Great news! Your UGC video for <strong>"${safeProduct}"</strong> has been generated successfully.</p>
+    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 24px; margin: 24px 0; text-align: center;">
+      <p style="margin: 0 0 16px 0; font-size: 16px; color: #166534;">Your video is ready to download!</p>
+      <a href="${safeVideoHref}" style="${buttonStyle}">View Your Video</a>
+    </div>
+    <p style="color: #64748b; font-size: 14px;">Or <a href="${safeDashboardHref}" style="color: #6366f1;">visit your dashboard</a> to see all your videos.</p>
+  `);
   return { subject, text, html };
 };
 
@@ -609,7 +750,7 @@ const buildPasswordResetEmail = ({
   email: string;
   resetUrl: string;
 }): EmailTemplate => {
-  const subject = 'Reset your password';
+  const subject = 'Reset Your Password — Advideolab';
   const safeEmail = escapeHtml(email);
   const safeResetHref = escapeAttr(sanitizeUrl(resetUrl) ?? '#');
   const text = [
@@ -622,16 +763,18 @@ const buildPasswordResetEmail = ({
     `This link will expire in 1 hour.`,
     `If you didn't request this, you can safely ignore this email.`,
     '',
-    '— The UGC Studio Team',
+    'Best regards,',
+    'The Advideolab Team',
   ].join('\n');
-  const html = `
-    <p>Hi,</p>
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">Reset Your Password</h2>
     <p>You requested a password reset for your account (<strong>${safeEmail}</strong>).</p>
-    <p><a href="${safeResetHref}">Reset your password →</a></p>
-    <p>This link will expire in 1 hour.</p>
-    <p>If you didn't request this, you can safely ignore this email.</p>
-    <p>— The UGC Studio Team</p>
-  `;
+    <p style="margin: 28px 0;"><a href="${safeResetHref}" style="${buttonStyle}">Reset Password</a></p>
+    <div style="background-color: #fef3c7; border: 1px solid #fcd34d; border-radius: 12px; padding: 16px; margin: 24px 0;">
+      <p style="margin: 0; color: #92400e; font-size: 14px;">This link will expire in 1 hour.</p>
+    </div>
+    <p style="color: #64748b; font-size: 14px;">If you didn't request this, you can safely ignore this email.</p>
+  `);
   return { subject, text, html };
 };
 
@@ -679,11 +822,16 @@ export const sendEmailTest = async () => {
     console.warn('[email] test skipped; notificationEmail missing');
     return false;
   }
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">Email Test Successful</h2>
+    <p>This is a test email from your Advideolab instance.</p>
+    <p>If you received this, your email configuration is working correctly!</p>
+  `);
   const ok = await sendMail({
     to: target,
-    subject: '[UGC Studio] Email test',
-    text: 'Testing Brevo SMTP integration from /health/email-test.',
-    html: '<p>Testing Brevo SMTP integration from <strong>/health/email-test</strong>.</p>',
+    subject: '[Advideolab] Email Configuration Test',
+    text: 'Testing SMTP integration from Advideolab.',
+    html,
   }, 'email_test');
   if (ok) {
     console.info('[email][health] send ok');

@@ -292,11 +292,11 @@ const getVimeoId = (value: string) => {
 const resolveHeroEmbedUrl = (value: string) => {
   const youtubeId = getYouTubeId(value);
   if (youtubeId) {
-    return `https://www.youtube.com/embed/${youtubeId}?autoplay=0&mute=0&playsinline=1&controls=1&rel=0&modestbranding=1`;
+    return `https://www.youtube.com/embed/${youtubeId}?autoplay=1&mute=1&loop=1&playlist=${youtubeId}&playsinline=1&controls=0&rel=0&modestbranding=1&enablejsapi=1`;
   }
   const vimeoId = getVimeoId(value);
   if (vimeoId) {
-    return `https://player.vimeo.com/video/${vimeoId}?autoplay=0&muted=0&loop=0&title=0&byline=0&portrait=0`;
+    return `https://player.vimeo.com/video/${vimeoId}?autoplay=1&muted=1&loop=1&playsinline=1&controls=0&title=0&byline=0&portrait=0`;
   }
   return null;
 };
@@ -354,6 +354,45 @@ const FaqAccordion = ({ items }: { items: FaqItem[] }) => {
   );
 };
 
+// Helper to resolve YouTube/Vimeo embed URLs for showcase videos
+const resolveShowcaseEmbedUrl = (value: string) => {
+  const youtubeId = getYouTubeId(value);
+  if (youtubeId) {
+    return `https://www.youtube.com/embed/${youtubeId}?autoplay=1&mute=1&loop=1&playlist=${youtubeId}&playsinline=1&controls=0&rel=0&modestbranding=1`;
+  }
+  const vimeoId = getVimeoId(value);
+  if (vimeoId) {
+    return `https://player.vimeo.com/video/${vimeoId}?autoplay=1&muted=1&loop=1&title=0&byline=0&portrait=0&background=1`;
+  }
+  return null;
+};
+
+const loadVimeoPlayerScript = () =>
+  new Promise<void>((resolve, reject) => {
+    if (typeof window === 'undefined') {
+      resolve();
+      return;
+    }
+    const win = window as any;
+    if (win.Vimeo?.Player) {
+      resolve();
+      return;
+    }
+    const existing = document.querySelector('script[data-vimeo-player="true"]') as HTMLScriptElement | null;
+    if (existing) {
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', () => reject());
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://player.vimeo.com/api/player.js';
+    script.async = true;
+    script.dataset.vimeoPlayer = 'true';
+    script.onload = () => resolve();
+    script.onerror = () => reject();
+    document.body.appendChild(script);
+  });
+
 const VideoCarousel = () => {
   const [videos, setVideos] = useState<ShowcaseVideo[]>([]);
   const [mutedState, setMutedState] = useState<Record<string, boolean>>({});
@@ -366,10 +405,17 @@ const VideoCarousel = () => {
       try {
         const res = await api.get('/public/showcase-videos');
         const data = res.data as ShowcaseVideo[];
-        setVideos(data);
+        const seen = new Set<string>();
+        const unique = data.filter((video) => {
+          const key = video.videoUrl ?? video.id;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setVideos(unique);
         // Initialize all videos as muted
         const initialMuted: Record<string, boolean> = {};
-        data.forEach((v) => {
+        unique.forEach((v) => {
           initialMuted[v.id] = true;
         });
         setMutedState(initialMuted);
@@ -443,11 +489,11 @@ const VideoCarousel = () => {
   if (loading) {
     return (
       <div className="py-12">
-        <div className="flex justify-center items-center gap-4">
+        <div className="flex justify-center items-center gap-5">
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="w-48 h-80 rounded-2xl bg-slate-200 animate-pulse flex-shrink-0"
+              className="w-64 md:w-72 aspect-[9/16] rounded-2xl bg-slate-200 animate-pulse flex-shrink-0"
             />
           ))}
         </div>
@@ -459,55 +505,71 @@ const VideoCarousel = () => {
     return null;
   }
 
-  // Duplicate videos for seamless loop effect
-  const displayVideos = [...videos, ...videos];
+  const displayVideos = videos;
 
   return (
     <div className="py-12 overflow-hidden">
       <div
         ref={scrollRef}
-        className="flex gap-4 overflow-x-hidden px-6"
+        className="flex gap-5 overflow-x-hidden px-6"
         style={{ scrollBehavior: 'auto' }}
       >
-        {displayVideos.map((video, idx) => (
-          <div
-            key={`${video.id}-${idx}`}
-            className="relative flex-shrink-0 w-48 md:w-56 aspect-[9/16] rounded-2xl overflow-hidden bg-slate-900 shadow-lg group"
-          >
-            <video
-              ref={(el) => {
-                if (idx < videos.length) {
-                  videoRefs.current[video.id] = el;
-                }
-              }}
-              src={video.videoUrl}
-              poster={video.thumbnailUrl ?? undefined}
-              loop
-              muted
-              autoPlay
-              playsInline
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            {/* Sound toggle button */}
-            <button
-              onClick={() => toggleMute(video.id)}
-              className="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
-              aria-label={mutedState[video.id] ? 'Unmute video' : 'Mute video'}
+        {displayVideos.map((video, idx) => {
+          const embedUrl = resolveShowcaseEmbedUrl(video.videoUrl);
+          const isEmbed = Boolean(embedUrl);
+
+          return (
+            <div
+              key={`${video.id}-${idx}`}
+              className="relative flex-shrink-0 w-64 md:w-72 aspect-[9/16] rounded-2xl overflow-hidden bg-slate-900 shadow-xl group"
             >
-              {mutedState[video.id] ? (
-                <IconVolumeOff className="h-4 w-4" />
+              {isEmbed ? (
+                <iframe
+                  src={embedUrl!}
+                  title={video.title ?? 'Showcase video'}
+                  className="absolute inset-0 w-full h-full border-0"
+                  allow="autoplay; encrypted-media"
+                  allowFullScreen
+                />
               ) : (
-                <IconVolume className="h-4 w-4" />
+                <video
+                  ref={(el) => {
+                    if (idx < videos.length) {
+                      videoRefs.current[video.id] = el;
+                    }
+                  }}
+                  src={video.videoUrl}
+                  poster={video.thumbnailUrl ?? undefined}
+                  loop
+                  muted
+                  autoPlay
+                  playsInline
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
               )}
-            </button>
-            {/* Optional title overlay */}
-            {video.title && (
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-8">
-                <p className="text-xs font-medium text-white truncate">{video.title}</p>
-              </div>
-            )}
-          </div>
-        ))}
+              {/* Sound toggle button - only for native videos */}
+              {!isEmbed && (
+                <button
+                  onClick={() => toggleMute(video.id)}
+                  className="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+                  aria-label={mutedState[video.id] ? 'Unmute video' : 'Mute video'}
+                >
+                  {mutedState[video.id] ? (
+                    <IconVolumeOff className="h-4 w-4" />
+                  ) : (
+                    <IconVolume className="h-4 w-4" />
+                  )}
+                </button>
+              )}
+              {/* Optional title overlay */}
+              {video.title && (
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-8">
+                  <p className="text-xs font-medium text-white truncate">{video.title}</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -642,7 +704,10 @@ const LandingPage = () => {
   const primaryCtaHref = heroContent.primaryCtaHref?.trim() || defaultHeroContent.primaryCtaHref || '/new-video';
   const secondaryCtaHref = heroContent.secondaryCtaHref?.trim() || defaultHeroContent.secondaryCtaHref || '/pricing';
   const heroVideoUrl = heroContent.videoUrl?.trim();
-  const heroEmbedUrl = heroVideoUrl ? resolveHeroEmbedUrl(heroVideoUrl) : null;
+  const heroVimeoId = heroVideoUrl ? getVimeoId(heroVideoUrl) : null;
+  const heroYoutubeId = heroVideoUrl ? getYouTubeId(heroVideoUrl) : null;
+  const heroEmbedUrl = heroVideoUrl && (heroVimeoId || heroYoutubeId) ? resolveHeroEmbedUrl(heroVideoUrl) : null;
+  const heroProvider = heroVimeoId ? 'vimeo' : heroYoutubeId ? 'youtube' : heroVideoUrl ? 'file' : null;
 
   const legacyHeadline = 'Create High-Converting UGC Videos from a Single Image';
   const headlineTemplate = heroHeadline === legacyHeadline ? 'Create UGC Videos for {{platform}}' : heroHeadline;
@@ -660,6 +725,12 @@ const LandingPage = () => {
   const [platformIndex, setPlatformIndex] = useState(0);
   const [headlineCharIndex, setHeadlineCharIndex] = useState(0);
   const [headlineDeleting, setHeadlineDeleting] = useState(false);
+
+  const [heroMuted, setHeroMuted] = useState(true);
+  const heroMutedRef = useRef(true);
+  const heroIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const heroVideoRef = useRef<HTMLVideoElement | null>(null);
+  const vimeoPlayerRef = useRef<any>(null);
 
   useEffect(() => {
     if (!shouldRotateHeadline) return;
@@ -686,6 +757,66 @@ const LandingPage = () => {
     return () => window.clearTimeout(timer);
   }, [headlineDeleting, headlineCharIndex, platformIndex, rotatingPlatforms.length, shouldRotateHeadline]);
 
+  useEffect(() => {
+    setHeroMuted(true);
+    if (heroVideoRef.current) {
+      heroVideoRef.current.muted = true;
+    }
+  }, [heroProvider, heroVideoUrl]);
+
+  useEffect(() => {
+    heroMutedRef.current = heroMuted;
+  }, [heroMuted]);
+
+  useEffect(() => {
+    if (heroProvider !== 'vimeo' || !heroEmbedUrl) return;
+    let cancelled = false;
+    loadVimeoPlayerScript()
+      .then(() => {
+        if (cancelled) return;
+        const win = window as any;
+        if (!heroIframeRef.current || !win?.Vimeo?.Player) return;
+        const player = new win.Vimeo.Player(heroIframeRef.current);
+        vimeoPlayerRef.current = player;
+        player.setMuted(heroMutedRef.current).catch(() => undefined);
+        if (!heroMutedRef.current) {
+          player.setVolume?.(1).catch?.(() => undefined);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      if (vimeoPlayerRef.current?.unload) {
+        vimeoPlayerRef.current.unload().catch?.(() => undefined);
+      }
+      vimeoPlayerRef.current = null;
+    };
+  }, [heroEmbedUrl, heroProvider]);
+
+  useEffect(() => {
+    if (heroProvider !== 'vimeo' || !vimeoPlayerRef.current) return;
+    vimeoPlayerRef.current.setMuted(heroMuted).catch?.(() => undefined);
+    if (!heroMuted) {
+      vimeoPlayerRef.current.setVolume?.(1).catch?.(() => undefined);
+    }
+  }, [heroMuted, heroProvider]);
+
+  const toggleHeroMute = useCallback(() => {
+    setHeroMuted((prev) => {
+      const next = !prev;
+      if (heroProvider === 'file' && heroVideoRef.current) {
+        heroVideoRef.current.muted = next;
+        if (!next) heroVideoRef.current.volume = 1;
+      }
+      if (heroProvider === 'vimeo' && vimeoPlayerRef.current) {
+        vimeoPlayerRef.current.setMuted(next).catch?.(() => undefined);
+        if (!next) vimeoPlayerRef.current.setVolume?.(1).catch?.(() => undefined);
+      }
+      return next;
+    });
+  }, [heroProvider]);
+
   const activePlatform = rotatingPlatforms[platformIndex] ?? '';
   const animatedPlatform =
     shouldRotateHeadline && activePlatform ? activePlatform.slice(0, headlineCharIndex) : activePlatform;
@@ -707,7 +838,7 @@ const LandingPage = () => {
   return (
     <div>
       <Seo
-        title="UGC Video Generator - Create AI Videos for TikTok, Reels & Shorts"
+        title="Advideo lab - Create UGC AI Videos for TikTok, Reels & Shorts"
         description="Create high-converting UGC videos from a single image. Upload one photo, choose language & platform, and generate TikTok, Reels & Shorts-ready videos in minutes."
         url={getSiteUrl('/')}
       />
@@ -729,10 +860,10 @@ const LandingPage = () => {
                 {shouldRotateHeadline && headlineParts ? (
                   <>
                     {headlineParts[0]}
-                    <span className="relative inline-flex items-center text-slate-900">
+                    <span className="relative inline-flex items-center bg-gradient-to-r from-[#6366f1] via-[#8b5cf6] to-[#a855f7] bg-clip-text text-transparent">
                       {animatedPlatform}
                       <span
-                        className="ml-1 inline-block h-[1em] w-[2px] animate-pulse bg-slate-900/70 align-middle"
+                        className="ml-1 inline-block h-[1em] w-[2px] animate-pulse bg-gradient-to-b from-[#6366f1] to-[#a855f7] align-middle"
                         aria-hidden="true"
                       />
                     </span>
@@ -771,13 +902,14 @@ const LandingPage = () => {
 
             {/* Right: Video Preview */}
             <div className="relative">
-              <div className="relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-blue-50 to-purple-50 shadow-2xl shadow-blue-500/10">
+              <div className="relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-blue-50 to-purple-50 shadow-2xl shadow-blue-500/10 group">
                 {heroVideoUrl ? (
                   heroEmbedUrl ? (
                     <iframe
                       src={heroEmbedUrl}
                       title="Hero video"
-                      className="absolute inset-0 h-full w-full"
+                      ref={heroIframeRef}
+                      className="absolute inset-0 h-full w-full pointer-events-none"
                       allow="autoplay; encrypted-media; picture-in-picture"
                       allowFullScreen
                     />
@@ -786,7 +918,10 @@ const LandingPage = () => {
                       src={heroVideoUrl}
                       poster={heroContent.videoPoster}
                       playsInline
-                      controls
+                      autoPlay
+                      loop
+                      muted={heroMuted}
+                      ref={heroVideoRef}
                       className="absolute inset-0 w-full h-full object-cover"
                     />
                   )
@@ -796,6 +931,16 @@ const LandingPage = () => {
                       <IconPlay className="h-8 w-8 text-[#2e90fa]" />
                     </div>
                   </div>
+                )}
+                {heroVideoUrl && heroProvider !== 'youtube' && (
+                  <button
+                    type="button"
+                    onClick={toggleHeroMute}
+                    className="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/80"
+                    aria-label={heroMuted ? 'Unmute video' : 'Mute video'}
+                  >
+                    {heroMuted ? <IconVolumeOff className="h-4 w-4" /> : <IconVolume className="h-4 w-4" />}
+                  </button>
                 )}
                 {/* Decorative elements (only show if no video) */}
                 {!heroVideoUrl && (
@@ -848,9 +993,9 @@ const LandingPage = () => {
 
         {/* Video Showcase Carousel */}
         <div className="mt-12">
-          <p className="text-center text-sm font-medium text-slate-500 mb-4">
+          <h2 className="text-center text-2xl font-bold text-slate-900 mb-4">
             See what others are creating
-          </p>
+          </h2>
           <VideoCarousel />
         </div>
       </section>
@@ -1065,16 +1210,16 @@ const LandingPage = () => {
       <section className="py-24">
         <div className="mx-auto max-w-7xl px-6">
           <div className="rounded-3xl bg-gradient-to-r from-[#2e90fa] to-blue-600 px-8 py-20 text-center">
-            <h2 className="text-3xl font-bold text-white md:text-4xl">Ready to create your first UGC video?</h2>
+            <h2 className="text-3xl font-bold text-white md:text-4xl">Ready to generate your first UGC video?</h2>
             <p className="mt-4 text-lg text-blue-100 max-w-2xl mx-auto">
-              Join 500+ brands using AI to generate high-converting UGC at scale. No credit card required to start.
+              Plans start at $69/month with credits included. Pick a plan and start generating UGC videos in minutes.
             </p>
             <div className="mt-10 flex flex-wrap justify-center gap-4">
               <Link
                 to="/new-video"
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-8 py-4 text-sm font-semibold text-[#2e90fa] shadow-lg transition hover:bg-blue-50"
               >
-                Get Started Free
+                Generate your first UGC video
                 <IconArrowRight className="h-4 w-4" />
               </Link>
               <Link
