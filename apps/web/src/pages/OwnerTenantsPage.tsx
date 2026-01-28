@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import api from '../lib/api';
 import { useAuth } from '../providers/AuthProvider';
 import { PLAN_DEFINITIONS, formatPlanSummary } from '../lib/plans';
@@ -35,6 +35,14 @@ type OwnerNotification = {
   tenant?: { name: string };
 };
 
+type DeleteModalState = {
+  open: boolean;
+  tenant: TenantRow | null;
+  confirmName: string;
+  loading: boolean;
+  error: string | null;
+};
+
 const formatDateLabel = (value?: string | null) => {
   if (!value) return null;
   const date = new Date(value);
@@ -62,6 +70,13 @@ const OwnerTenantsPage = () => {
   const [billingStartDrafts, setBillingStartDrafts] = useState<Record<string, string>>({});
   const [bonusDrafts, setBonusDrafts] = useState<Record<string, number>>({});
   const [paymentStatusDrafts, setPaymentStatusDrafts] = useState<Record<string, TenantRow['paymentStatus']>>({});
+  const [deleteModal, setDeleteModal] = useState<DeleteModalState>({
+    open: false,
+    tenant: null,
+    confirmName: '',
+    loading: false,
+    error: null,
+  });
 
   const { data: tenants } = useQuery<TenantRow[]>({
     queryKey: ['ownerTenants'],
@@ -142,6 +157,45 @@ const OwnerTenantsPage = () => {
     mutationFn: (notificationId: string) => api.post(`/owner/notifications/${notificationId}/read`, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ownerNotifications'] }),
   });
+
+  const openDeleteModal = useCallback((tenant: TenantRow) => {
+    setDeleteModal({
+      open: true,
+      tenant,
+      confirmName: '',
+      loading: false,
+      error: null,
+    });
+  }, []);
+
+  const closeDeleteModal = useCallback(() => {
+    setDeleteModal({
+      open: false,
+      tenant: null,
+      confirmName: '',
+      loading: false,
+      error: null,
+    });
+  }, []);
+
+  const handleDeleteTenant = useCallback(async () => {
+    if (!deleteModal.tenant) return;
+
+    setDeleteModal((prev) => ({ ...prev, loading: true, error: null }));
+
+    try {
+      await api.delete(`/owner/tenants/${deleteModal.tenant.id}`, {
+        data: { confirmName: deleteModal.confirmName },
+      });
+      invalidateTenants();
+      closeDeleteModal();
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.error === 'confirmation_name_mismatch'
+        ? 'The entered name does not match the tenant name.'
+        : err?.response?.data?.error ?? 'Failed to delete tenant.';
+      setDeleteModal((prev) => ({ ...prev, loading: false, error: errorMsg }));
+    }
+  }, [deleteModal.tenant, deleteModal.confirmName, invalidateTenants, closeDeleteModal]);
 
   const pendingTenants = useMemo(
     () => (tenants ?? []).filter((tenant) => tenant.status === 'pending'),
@@ -466,6 +520,12 @@ const OwnerTenantsPage = () => {
                       >
                         Impersonate
                       </button>
+                      <button
+                        className="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-500/20"
+                        onClick={() => openDeleteModal(tenant)}
+                      >
+                        Delete
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -477,6 +537,64 @@ const OwnerTenantsPage = () => {
           <p className="px-4 py-6 text-sm text-slate-400">No tenants onboarded yet—seed or add one manually.</p>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteModal.open && deleteModal.tenant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-rose-500/20">
+              <svg className="h-6 w-6 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h3 className="text-center text-lg font-semibold text-white">Delete Tenant Account</h3>
+            <p className="mt-2 text-center text-sm text-slate-400">
+              This action is permanent and cannot be undone. All data including users, jobs, and billing history will be deleted.
+            </p>
+            <div className="mt-4 rounded-2xl border border-rose-500/20 bg-rose-500/10 p-3">
+              <p className="text-center text-sm text-rose-200">
+                Deleting: <span className="font-semibold">{deleteModal.tenant.name}</span>
+              </p>
+              {deleteModal.tenant.contactEmail && (
+                <p className="text-center text-xs text-rose-200/70">{deleteModal.tenant.contactEmail}</p>
+              )}
+            </div>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-slate-300">
+                Type <span className="font-semibold text-white">{deleteModal.tenant.name}</span> to confirm
+              </label>
+              <input
+                type="text"
+                value={deleteModal.confirmName}
+                onChange={(e) => setDeleteModal((prev) => ({ ...prev, confirmName: e.target.value, error: null }))}
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-rose-500/50 focus:outline-none focus:ring-1 focus:ring-rose-500/50"
+                placeholder="Enter tenant name to confirm"
+              />
+            </div>
+            {deleteModal.error && (
+              <p className="mt-2 text-center text-sm text-rose-400">{deleteModal.error}</p>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                disabled={deleteModal.loading}
+                className="flex-1 rounded-2xl border border-white/10 bg-white/5 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteTenant}
+                disabled={deleteModal.loading || deleteModal.confirmName.toLowerCase() !== deleteModal.tenant.name.toLowerCase()}
+                className="flex-1 rounded-2xl bg-rose-600 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deleteModal.loading ? 'Deleting...' : 'Delete Account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 };

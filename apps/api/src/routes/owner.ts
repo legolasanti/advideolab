@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { requireAuth, requireOwner } from '../middleware/auth';
@@ -17,13 +18,29 @@ import { sanitizeImage } from '../services/imageProcessing';
 import { env } from '../config/env';
 import { validateUpload } from '../utils/fileValidation';
 import { resolveSafeExternalTarget, UnsafeExternalUrlError } from '../utils/safeUrl';
-import { JobStatus, MarketingEventType } from '@prisma/client';
+import { JobStatus, MarketingEventType, MediaAssetType, Prisma } from '@prisma/client';
 
 const router = Router();
 
 router.use(requireAuth, requireOwner());
 
 const SYSTEM_CONFIG_ID = 'singleton';
+
+const mediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 200 * 1024 * 1024,
+  },
+});
+
+const MEDIA_MIME_TYPES: Record<string, { type: MediaAssetType; ext: string }> = {
+  'image/jpeg': { type: 'image', ext: 'jpg' },
+  'image/png': { type: 'image', ext: 'png' },
+  'image/webp': { type: 'image', ext: 'webp' },
+  'video/mp4': { type: 'video', ext: 'mp4' },
+  'video/quicktime': { type: 'video', ext: 'mov' },
+  'video/webm': { type: 'video', ext: 'webm' },
+};
 
 const publicCdn = (() => {
   try {
@@ -258,6 +275,63 @@ router.post('/tenants/:tenantId/billing', async (req, res) => {
     },
   });
   res.json(tenant);
+});
+
+router.delete('/tenants/:tenantId', async (req, res) => {
+  const { tenantId } = req.params;
+  const { confirmName } = z.object({ confirmName: z.string().min(1) }).parse(req.body);
+
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { id: true, name: true },
+  });
+
+  if (!tenant) {
+    return res.status(404).json({ error: 'tenant_not_found' });
+  }
+
+  // Verify confirmation name matches tenant name
+  if (tenant.name.toLowerCase() !== confirmName.toLowerCase()) {
+    return res.status(400).json({ error: 'confirmation_name_mismatch' });
+  }
+
+  // Delete all related data in transaction
+  await prisma.$transaction(async (tx) => {
+    // Delete jobs and assets
+    await tx.asset.deleteMany({ where: { tenantId } });
+    await tx.job.deleteMany({ where: { tenantId } });
+
+    // Delete subscriptions and cancellations
+    await tx.subscriptionCancellation.deleteMany({ where: { tenantId } });
+
+    // Delete admin notifications
+    await tx.adminNotification.deleteMany({ where: { tenantId } });
+
+    // Delete audit logs
+    await tx.audit.deleteMany({ where: { tenantId } });
+
+    // Delete refresh tokens
+    await tx.refreshToken.deleteMany({ where: { user: { tenantId } } });
+
+    // Delete users
+    await tx.user.deleteMany({ where: { tenantId } });
+
+    // Finally delete the tenant
+    await tx.tenant.delete({ where: { id: tenantId } });
+  });
+
+  await prisma.audit.create({
+    data: {
+      action: 'owner_tenant_deleted',
+      details: {
+        tenantId,
+        tenantName: tenant.name,
+        deletedBy: req.auth?.ownerId ?? null,
+      },
+    },
+  });
+
+  res.json({ ok: true, deleted: tenant.name });
 });
 
 router.post('/tenants/:tenantId/unlimited', async (req, res) => {
@@ -501,6 +575,116 @@ router.put('/cms/:section/:key', async (req, res) => {
   res.json({ value: record.value });
 });
 
+// Media library (uploads for marketing assets)
+router.get('/media-library', async (_req, res) => {
+  const assets = await prisma.mediaAsset.findMany({
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(assets);
+});
+
+router.post('/media-library', mediaUpload.single('file'), async (req, res, next) => {
+  try {
+    const body = z.object({
+      name: z.string().optional().nullable(),
+      altText: z.string().optional().nullable(),
+    }).parse(req.body);
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'File is required' });
+    }
+
+    const mime = req.file.mimetype;
+    const metaEntry = MEDIA_MIME_TYPES[mime];
+    if (!metaEntry) {
+      return res.status(400).json({ error: 'Unsupported file type' });
+    }
+
+    let buffer = req.file.buffer;
+    let contentType = mime;
+    let ext = metaEntry.ext;
+    const meta: Record<string, unknown> = {
+      originalName: req.file.originalname,
+    };
+
+    if (metaEntry.type === 'image') {
+      try {
+        const sanitized = await sanitizeImage(req.file);
+        buffer = sanitized.buffer;
+        ext = sanitized.ext;
+        contentType = ext === 'png' ? 'image/png' : 'image/jpeg';
+        meta.width = sanitized.metadata.width ?? null;
+        meta.height = sanitized.metadata.height ?? null;
+      } catch (_err) {
+        return res.status(400).json({ error: 'Invalid image file' });
+      }
+    } else if (!req.file.buffer || req.file.buffer.length === 0) {
+      return res.status(400).json({ error: 'Empty file' });
+    }
+
+    const safeName = (body.name ?? '').trim();
+    const fallbackName = req.file.originalname?.trim() || `media-${Date.now()}`;
+    const name = safeName.length > 0 ? safeName : fallbackName;
+    const altText = (body.altText ?? '').trim() || null;
+
+    const now = new Date();
+    const key = `library/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${Date.now()}-${crypto
+      .randomBytes(4)
+      .toString('hex')}.${ext}`;
+    const url = await uploadBuffer(buffer, key, contentType);
+
+    const asset = await prisma.mediaAsset.create({
+      data: {
+        type: metaEntry.type,
+        name,
+        altText,
+        url,
+        mimeType: contentType,
+        sizeBytes: req.file.size ?? buffer.length,
+        meta: meta as Prisma.InputJsonValue,
+      },
+    });
+
+    res.json(asset);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/media-library/:id', async (req, res) => {
+  const body = z
+    .object({
+      name: z.string().optional().nullable(),
+      altText: z.string().optional().nullable(),
+    })
+    .parse(req.body);
+
+  const update: Record<string, unknown> = {};
+  if (body.name !== undefined) {
+    const trimmed = (body.name ?? '').trim();
+    if (trimmed.length > 0) update.name = trimmed;
+  }
+  if (body.altText !== undefined) {
+    const trimmed = (body.altText ?? '').trim();
+    update.altText = trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (Object.keys(update).length === 0) {
+    return res.status(400).json({ error: 'Nothing to update' });
+  }
+
+  const asset = await prisma.mediaAsset.update({
+    where: { id: req.params.id },
+    data: update,
+  });
+  res.json(asset);
+});
+
+router.delete('/media-library/:id', async (req, res) => {
+  await prisma.mediaAsset.delete({ where: { id: req.params.id } });
+  res.json({ ok: true });
+});
+
 // Coupons
 router.get('/coupons', async (_req, res) => {
   const coupons = await prisma.coupon.findMany({ orderBy: { createdAt: 'desc' } });
@@ -544,8 +728,16 @@ router.get('/cancellations', async (_req, res) => {
     },
   });
 
+  const seen = new Set<string>();
+  const deduplicated = cancellations.filter((entry) => {
+    const key = entry.stripeSubscriptionId ?? entry.tenantId;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   const summary = {
-    total: cancellations.length,
+    total: deduplicated.length,
     byPlan: {} as Record<string, number>,
     byInterval: {} as Record<string, number>,
     byReason: {} as Record<string, number>,
@@ -555,7 +747,7 @@ router.get('/cancellations', async (_req, res) => {
   let monthsSum = 0;
   let monthsCount = 0;
 
-  const items = cancellations.map((entry) => {
+  const items = deduplicated.map((entry) => {
     const planKey = entry.planCode ?? 'unknown';
     const intervalKey = entry.billingInterval ?? 'monthly';
     const reasonKey = entry.reason ?? 'unknown';
@@ -1067,8 +1259,12 @@ router.put('/system-config', async (req, res) => {
     customHeadCode: normalizeNullableString(body.customHeadCode),
     customBodyStart: normalizeNullableString(body.customBodyStart),
     customBodyEnd: normalizeNullableString(body.customBodyEnd),
-    googleOAuthClientId: normalizeNullableString(body.googleOAuthClientId),
   };
+
+  const googleClientId = normalizeNullableString(body.googleOAuthClientId);
+  if (googleClientId !== undefined && googleClientId !== null) {
+    updateData.googleOAuthClientId = googleClientId;
+  }
 
   if (body.smtpPass !== undefined) {
     const pass = (body.smtpPass ?? '').trim();

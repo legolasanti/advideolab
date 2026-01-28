@@ -643,6 +643,7 @@ router.post('/signup', signupLimiter, async (req, res) => {
       paymentStatus: 'payment_pending',
       billingCompanyName: companyName,
       billingInterval: billingInterval ?? 'monthly',
+      appliedCouponCode: couponCode?.trim() || null,
     },
   });
 
@@ -722,7 +723,7 @@ router.post('/verify-email', async (req, res) => {
     where: { token: tokenHash },
   });
 
-  if (!record || record.used || record.expiresAt < new Date()) {
+  if (!record) {
     return res.status(400).json({ error: 'verification_invalid' });
   }
 
@@ -739,16 +740,31 @@ router.post('/verify-email', async (req, res) => {
     return res.status(404).json({ error: 'account_not_found' });
   }
 
-  await prisma.$transaction(async (trx) => {
-    await trx.user.update({
-      where: { id: user.id },
-      data: { emailVerifiedAt: new Date() },
+  const alreadyVerified = Boolean(user.emailVerifiedAt);
+  const tokenExpired = record.expiresAt < new Date();
+  const tokenUsed = record.used;
+
+  if ((tokenExpired || tokenUsed) && !alreadyVerified) {
+    return res.status(400).json({ error: 'verification_invalid' });
+  }
+
+  if (!alreadyVerified) {
+    await prisma.$transaction(async (trx) => {
+      await trx.user.update({
+        where: { id: user.id },
+        data: { emailVerifiedAt: new Date() },
+      });
+      await trx.emailVerificationToken.updateMany({
+        where: { userId: user.id, used: false },
+        data: { used: true },
+      });
     });
-    await trx.emailVerificationToken.updateMany({
+  } else if (!tokenUsed) {
+    await prisma.emailVerificationToken.updateMany({
       where: { userId: user.id, used: false },
       data: { used: true },
     });
-  });
+  }
 
   let checkoutUrl: string | null = null;
   const effectivePlanCode =
@@ -762,6 +778,7 @@ router.post('/verify-email', async (req, res) => {
       billingInterval: user.tenant.billingInterval ?? 'monthly',
       customerEmail: user.email,
       customerName: user.tenant.billingCompanyName ?? user.tenant.name,
+      couponCode: user.tenant.appliedCouponCode ?? undefined,
       successUrl: `${env.WEB_BASE_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${env.WEB_BASE_URL}/checkout/cancel`,
       marketing: marketing ?? null,

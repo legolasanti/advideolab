@@ -80,13 +80,16 @@ router.post(
       });
     }
 
+    // Use coupon from request, or fall back to tenant's stored coupon
+    const effectiveCoupon = couponCode ?? req.tenant.appliedCouponCode ?? undefined;
+
     const session = await createStripeCheckoutSessionForTenant({
       tenantId: req.tenant.id,
       planCode: effectivePlanCode,
       billingInterval: billingInterval ?? req.tenant.billingInterval ?? 'monthly',
       customerEmail: user.email,
       customerName: req.tenant.billingCompanyName ?? req.tenant.name,
-      couponCode,
+      couponCode: effectiveCoupon,
       successUrl: `${env.WEB_BASE_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${env.WEB_BASE_URL}/checkout/cancel`,
       marketing: marketing ?? null,

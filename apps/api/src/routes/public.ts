@@ -185,4 +185,47 @@ router.post('/coupons/validate', async (req, res) => {
   });
 });
 
+// Checkout Status - public endpoint for checking checkout completion
+// Used when user returns from Stripe but may not have valid auth token
+router.get('/checkout-status/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId || sessionId.length < 10) {
+    return res.status(400).json({ error: 'invalid_session_id' });
+  }
+
+  // Find tenant by checkout session ID
+  const tenant = await prisma.tenant.findFirst({
+    where: { stripeCheckoutSessionId: sessionId },
+    select: {
+      id: true,
+      status: true,
+      paymentStatus: true,
+      requestedPlanCode: true,
+    },
+  });
+
+  if (!tenant) {
+    // Tenant not found - might still be processing
+    return res.json({
+      found: false,
+      status: 'processing',
+      message: 'Payment is being processed. Please wait.',
+    });
+  }
+
+  const isActive = tenant.status === 'active' && tenant.paymentStatus === 'active_paid';
+
+  res.json({
+    found: true,
+    tenantId: tenant.id,
+    status: tenant.status,
+    paymentStatus: tenant.paymentStatus,
+    planCode: tenant.requestedPlanCode,
+    isActive,
+    message: isActive
+      ? 'Your account is active. Please log in to continue.'
+      : 'Payment is being processed. Please wait.',
+  });
+});
+
 export default router;
