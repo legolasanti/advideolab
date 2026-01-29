@@ -348,6 +348,111 @@ const claimCouponUsage = async (code: string) => {
   });
 };
 
+// Create a custom price for enterprise customers
+export const createEnterpriseCheckoutSession = async (args: {
+  tenantId: string;
+  customerEmail: string;
+  customerName: string;
+  customPriceUsd: number;
+  billingInterval: BillingInterval;
+  successUrl: string;
+  cancelUrl: string;
+}) => {
+  const { stripe } = await getStripeSecrets();
+
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: args.tenantId },
+    include: { enterpriseSettings: true },
+  });
+  if (!tenant) {
+    throw new HttpError(404, 'Tenant not found.');
+  }
+
+  const customerId = await ensureStripeCustomerId(
+    stripe,
+    tenant.id,
+    args.customerEmail,
+    args.customerName,
+  );
+
+  // Check if we already have a custom price for this enterprise
+  let priceId = tenant.enterpriseSettings?.stripePriceId;
+
+  if (!priceId) {
+    // Create a product for this enterprise
+    const product = await stripe.products.create({
+      name: `AdVideoLab Enterprise · ${tenant.name}`,
+      metadata: {
+        tenant_id: tenant.id,
+        plan_type: 'enterprise',
+      },
+    });
+
+    // Create a custom recurring price
+    const price = await stripe.prices.create({
+      product: product.id,
+      currency: 'usd',
+      unit_amount: args.customPriceUsd * 100,
+      recurring: {
+        interval: args.billingInterval === 'annual' ? 'year' : 'month',
+      },
+      metadata: {
+        tenant_id: tenant.id,
+        plan_type: 'enterprise',
+        billing_interval: args.billingInterval,
+      },
+    });
+
+    priceId = price.id;
+
+    // Save the price ID to enterprise settings
+    await prisma.enterpriseSettings.update({
+      where: { tenantId: tenant.id },
+      data: { stripePriceId: priceId },
+    });
+  }
+
+  // Create checkout session with custom price
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    customer: customerId,
+    client_reference_id: tenant.id,
+    success_url: args.successUrl,
+    cancel_url: args.cancelUrl,
+    line_items: [{ price: priceId, quantity: 1 }],
+    billing_address_collection: 'required',
+    tax_id_collection: { enabled: true },
+    customer_update: { address: 'auto', name: 'auto' },
+    metadata: {
+      tenant_id: tenant.id,
+      plan_type: 'enterprise',
+      billing_interval: args.billingInterval,
+    },
+    subscription_data: {
+      metadata: {
+        tenant_id: tenant.id,
+        plan_type: 'enterprise',
+        billing_interval: args.billingInterval,
+      },
+    },
+  });
+
+  await prisma.tenant.update({
+    where: { id: tenant.id },
+    data: {
+      stripeCustomerId: customerId,
+      stripeCheckoutSessionId: session.id,
+      billingInterval: args.billingInterval,
+    },
+  });
+
+  if (!session.url) {
+    throw new HttpError(500, 'Stripe did not return a checkout URL.');
+  }
+
+  return { url: session.url, id: session.id };
+};
+
 export const createStripeCheckoutSessionForTenant = async (args: {
   tenantId: string;
   planCode: PlanCode;
@@ -602,7 +707,11 @@ export const activateTenantFromCheckoutSessionId = async (tenantId: string, sess
   }
 
   const planCode = (session.metadata?.plan_code as PlanCode | undefined) ?? null;
-  if (!planCode) {
+  const planType = session.metadata?.plan_type ?? null;
+  const isEnterprise = planType === 'enterprise';
+
+  // Enterprise plans don't have a plan_code, they have plan_type='enterprise'
+  if (!planCode && !isEnterprise) {
     throw new HttpError(400, 'Missing plan code on checkout session.');
   }
 
@@ -625,7 +734,36 @@ export const activateTenantFromCheckoutSessionId = async (tenantId: string, sess
 
   const alreadyApplied = normalizeCode(tenant.appliedCouponCode) === couponCode && Boolean(couponCode);
 
-  const updatedTenant = await applyPlanChange(tenant.id, planCode, {
+  // Handle enterprise activation differently
+  if (isEnterprise) {
+    const updatedTenant = await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        status: 'active',
+        paymentStatus: 'active_paid',
+        billingInterval,
+        billingCycleStart: subscriptionPeriodStart ?? new Date(),
+        subscriptionPeriodStart,
+        subscriptionPeriodEnd,
+        subscriptionCancelAt,
+        subscriptionCanceledAt: null,
+        stripeCustomerId,
+        stripeSubscriptionId,
+        stripeCheckoutSessionId: session.id,
+      },
+    });
+
+    console.info('[stripe] Enterprise tenant activated', {
+      tenantId: tenant.id,
+      sessionId,
+      stripeSubscriptionId,
+    });
+
+    return updatedTenant;
+  }
+
+  // Standard plan activation
+  const updatedTenant = await applyPlanChange(tenant.id, planCode!, {
     activate: true,
     billingStartDate: subscriptionPeriodStart ?? new Date(),
     paymentStatus: 'active_paid',
@@ -785,6 +923,10 @@ export const processStripeWebhook = async (rawBody: Buffer, signatureHeader: str
           price?.recurring?.interval ?? null,
         );
 
+        // Check if this is an enterprise subscription (custom price with plan_type in metadata)
+        const isEnterprise = price?.metadata?.plan_type === 'enterprise' || tenant.tenantType === 'enterprise';
+        const interval: BillingInterval = price?.recurring?.interval === 'year' ? 'annual' : 'monthly';
+
         if (planMatch) {
           await applyPlanChange(tenant.id, planMatch.planCode, {
             activate: true,
@@ -807,6 +949,28 @@ export const processStripeWebhook = async (rawBody: Buffer, signatureHeader: str
               stripe_price_id: price?.id ?? null,
               stripe_subscription_status: subscriptionObj.status,
             },
+          });
+        } else if (isEnterprise) {
+          // Handle enterprise subscription renewal
+          await prisma.tenant.update({
+            where: { id: tenant.id },
+            data: {
+              status: 'active',
+              paymentStatus: 'active_paid',
+              billingInterval: interval,
+              billingCycleStart: subscriptionPeriodStart ?? tenant.billingCycleStart,
+              subscriptionPeriodStart,
+              subscriptionPeriodEnd,
+              subscriptionCancelAt:
+                subscriptionObj.cancel_at && Number.isFinite(subscriptionObj.cancel_at)
+                  ? new Date(subscriptionObj.cancel_at * 1000)
+                  : null,
+            },
+          });
+          console.info('[stripe] Enterprise subscription renewed', {
+            tenantId: tenant.id,
+            invoiceId: invoice.id,
+            subscriptionId: subscriptionObj.id,
           });
         } else {
           await prisma.tenant.update({

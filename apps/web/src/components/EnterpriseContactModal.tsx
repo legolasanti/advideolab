@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, Building2, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
-import { api } from '../lib/api';
+import api from '../lib/api';
 
 type EnterpriseContactModalProps = {
   isOpen: boolean;

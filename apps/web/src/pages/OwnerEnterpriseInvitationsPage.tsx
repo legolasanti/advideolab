@@ -15,7 +15,6 @@ import {
   Video,
   Clock,
   Copy,
-  ExternalLink,
 } from 'lucide-react';
 import api from '../lib/api';
 import { useAuth } from '../providers/AuthProvider';
@@ -63,8 +62,7 @@ const OwnerEnterpriseInvitationsPage = () => {
   const [formData, setFormData] = useState({
     email: '',
     companyName: '',
-    customMonthlyPriceUsd: 299,
-    customAnnualPriceUsd: 2990,
+    customPriceUsd: 299, // Single price field
     billingInterval: 'monthly' as 'monthly' | 'annual',
     maxSubCompanies: 5,
     maxAdditionalUsers: 10,
@@ -82,7 +80,19 @@ const OwnerEnterpriseInvitationsPage = () => {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const { data: result } = await api.post('/owner/enterprise-invitations', data);
+      // Transform single price to the correct field based on billing interval
+      const payload = {
+        email: data.email,
+        companyName: data.companyName,
+        customMonthlyPriceUsd: data.billingInterval === 'monthly' ? data.customPriceUsd : null,
+        customAnnualPriceUsd: data.billingInterval === 'annual' ? data.customPriceUsd : null,
+        billingInterval: data.billingInterval,
+        maxSubCompanies: data.maxSubCompanies,
+        maxAdditionalUsers: data.maxAdditionalUsers,
+        totalVideoCredits: data.totalVideoCredits,
+        expiresInDays: data.expiresInDays,
+      };
+      const { data: result } = await api.post('/owner/enterprise-invitations', payload);
       return result;
     },
     onSuccess: () => {
@@ -145,8 +155,7 @@ const OwnerEnterpriseInvitationsPage = () => {
     setFormData({
       email: '',
       companyName: '',
-      customMonthlyPriceUsd: 299,
-      customAnnualPriceUsd: 2990,
+      customPriceUsd: 299,
       billingInterval: 'monthly',
       maxSubCompanies: 5,
       maxAdditionalUsers: 10,
@@ -527,29 +536,36 @@ const OwnerEnterpriseInvitationsPage = () => {
               <div className="grid gap-5 sm:grid-cols-2">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                    Monthly Price (USD) *
+                    Billing Interval *
                   </label>
-                  <input
-                    type="number"
-                    required
-                    min={1}
-                    value={formData.customMonthlyPriceUsd}
-                    onChange={(e) => setFormData({ ...formData, customMonthlyPriceUsd: Number(e.target.value) })}
+                  <select
+                    value={formData.billingInterval}
+                    onChange={(e) => setFormData({ ...formData, billingInterval: e.target.value as 'monthly' | 'annual' })}
                     className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                  />
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="annual">Annual</option>
+                  </select>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                    Annual Price (USD)
+                    Price (USD) *
                   </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={formData.customAnnualPriceUsd}
-                    onChange={(e) => setFormData({ ...formData, customAnnualPriceUsd: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                  />
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      value={formData.customPriceUsd}
+                      onChange={(e) => setFormData({ ...formData, customPriceUsd: Number(e.target.value) })}
+                      className="w-full rounded-xl border border-white/10 bg-slate-950/60 pl-8 pr-4 py-3 text-white focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                      /{formData.billingInterval === 'annual' ? 'year' : 'month'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -597,34 +613,18 @@ const OwnerEnterpriseInvitationsPage = () => {
                 </div>
               </div>
 
-              <div className="grid gap-5 sm:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                    Billing Interval
-                  </label>
-                  <select
-                    value={formData.billingInterval}
-                    onChange={(e) => setFormData({ ...formData, billingInterval: e.target.value as 'monthly' | 'annual' })}
-                    className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                  >
-                    <option value="monthly">Monthly</option>
-                    <option value="annual">Annual</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                    Expires In (Days)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={90}
-                    value={formData.expiresInDays}
-                    onChange={(e) => setFormData({ ...formData, expiresInDays: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                  Expires In (Days)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={formData.expiresInDays}
+                  onChange={(e) => setFormData({ ...formData, expiresInDays: Number(e.target.value) })}
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
               </div>
 
               <div className="flex gap-3 pt-4">

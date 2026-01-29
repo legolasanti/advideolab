@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useMemo } from 'react';
 import {
   Users,
-  Plus,
   Mail,
   Building2,
   Shield,

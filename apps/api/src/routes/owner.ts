@@ -1397,7 +1397,7 @@ router.post('/enterprise-invitations', async (req, res) => {
   const body = z.object({
     email: z.string().email().max(255),
     companyName: z.string().min(1).max(255),
-    customMonthlyPriceUsd: z.coerce.number().int().min(1),
+    customMonthlyPriceUsd: z.coerce.number().int().min(1).optional().nullable(),
     customAnnualPriceUsd: z.coerce.number().int().min(1).optional().nullable(),
     billingInterval: z.enum(['monthly', 'annual']).optional(),
     maxSubCompanies: z.coerce.number().int().min(1).max(100).optional(),
@@ -1405,6 +1405,24 @@ router.post('/enterprise-invitations', async (req, res) => {
     totalVideoCredits: z.coerce.number().int().min(1).max(10000).optional(),
     expiresInDays: z.coerce.number().int().min(1).max(90).optional(),
   }).parse(req.body);
+
+  const billingInterval = body.billingInterval ?? 'monthly';
+
+  // At least one price must be provided - use the one matching the billing interval
+  const priceForInterval = billingInterval === 'annual'
+    ? (body.customAnnualPriceUsd ?? body.customMonthlyPriceUsd)
+    : (body.customMonthlyPriceUsd ?? body.customAnnualPriceUsd);
+
+  if (!priceForInterval) {
+    return res.status(400).json({
+      error: 'validation_error',
+      message: 'A price is required for the selected billing interval'
+    });
+  }
+
+  // Use single price for the selected interval
+  const finalMonthlyPrice = billingInterval === 'monthly' ? priceForInterval : (body.customMonthlyPriceUsd ?? priceForInterval);
+  const finalAnnualPrice = billingInterval === 'annual' ? priceForInterval : (body.customAnnualPriceUsd ?? null);
 
   // Generate secure token
   const tokenBytes = crypto.randomBytes(32);
@@ -1419,9 +1437,9 @@ router.post('/enterprise-invitations', async (req, res) => {
       email: body.email,
       companyName: body.companyName,
       tokenHash,
-      customMonthlyPriceUsd: body.customMonthlyPriceUsd,
-      customAnnualPriceUsd: body.customAnnualPriceUsd ?? null,
-      billingInterval: body.billingInterval ?? 'monthly',
+      customMonthlyPriceUsd: finalMonthlyPrice,
+      customAnnualPriceUsd: finalAnnualPrice,
+      billingInterval,
       maxSubCompanies: body.maxSubCompanies ?? 5,
       maxAdditionalUsers: body.maxAdditionalUsers ?? 10,
       totalVideoCredits: body.totalVideoCredits ?? 100,
@@ -1431,13 +1449,13 @@ router.post('/enterprise-invitations', async (req, res) => {
 
   // Send invitation email
   const { sendEnterpriseInvitationEmail } = await import('../services/email');
-  const acceptUrl = `${env.WEB_BASE_URL}/enterprise/accept?token=${token}`;
+  const acceptUrl = `${env.WEB_BASE_URL}/enterprise/accept/${token}`;
   await sendEnterpriseInvitationEmail({
     email: body.email,
     companyName: body.companyName,
-    customMonthlyPriceUsd: body.customMonthlyPriceUsd,
-    customAnnualPriceUsd: body.customAnnualPriceUsd ?? null,
-    billingInterval: body.billingInterval ?? 'monthly',
+    customMonthlyPriceUsd: finalMonthlyPrice,
+    customAnnualPriceUsd: finalAnnualPrice,
+    billingInterval,
     maxSubCompanies: body.maxSubCompanies ?? 5,
     totalVideoCredits: body.totalVideoCredits ?? 100,
     acceptUrl,
@@ -1480,7 +1498,7 @@ router.post('/enterprise-invitations/:id/resend', async (req, res) => {
 
   // Send invitation email
   const { sendEnterpriseInvitationEmail } = await import('../services/email');
-  const acceptUrl = `${env.WEB_BASE_URL}/enterprise/accept?token=${token}`;
+  const acceptUrl = `${env.WEB_BASE_URL}/enterprise/accept/${token}`;
   await sendEnterpriseInvitationEmail({
     email: invitation.email,
     companyName: invitation.companyName,

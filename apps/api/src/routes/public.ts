@@ -3,12 +3,13 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { getCmsSection } from '../services/cms';
-import { getEmailStatus, sendOwnerContactNotification, sendContactConfirmation, sendEnterpriseContactNotification, sendEnterpriseContactConfirmation } from '../services/email';
+import { getEmailStatus, sendOwnerContactNotification, sendContactConfirmation } from '../services/email';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { trackMarketingEvent } from '../services/marketing';
 import { hashPassword } from '../services/password';
 import { MarketingEventType } from '@prisma/client';
+import { createEnterpriseCheckoutSession } from '../services/stripe';
 
 const router = Router();
 
@@ -159,17 +160,16 @@ router.post('/enterprise-contact', contactLimiter, async (req, res) => {
     }
 
     // Send notification to admin
-    await sendEnterpriseContactNotification({
+    await sendOwnerContactNotification({
       name: payload.name,
       email: payload.email,
-      phone: payload.phone,
-      companyName: payload.companyName,
-      website: payload.website,
-      message: payload.message,
+      company: payload.companyName || undefined,
+      message: `[Enterprise Inquiry]\nPhone: ${payload.phone || 'N/A'}\nWebsite: ${payload.website || 'N/A'}\n\n${payload.message || 'No message provided'}`,
+      source: 'enterprise_contact',
     });
 
     // Send confirmation to user
-    await sendEnterpriseContactConfirmation({
+    await sendContactConfirmation({
       email: payload.email,
       name: payload.name,
     });
@@ -401,18 +401,44 @@ router.post('/enterprise-invitation/:token/accept', contactLimiter, async (req, 
     return { tenant, user };
   });
 
-  // TODO: Create Stripe checkout session for enterprise pricing
-  // For now, return success and let them log in
-  // The payment flow will be handled separately
+  // Determine the selected billing interval and price
+  const selectedInterval = body.billingInterval ?? invitation.billingInterval;
+  const selectedPrice = selectedInterval === 'annual' && invitation.customAnnualPriceUsd
+    ? invitation.customAnnualPriceUsd
+    : invitation.customMonthlyPriceUsd;
 
-  res.json({
-    success: true,
-    message: 'Account created successfully. Please proceed to payment.',
-    tenantId: result.tenant.id,
-    userId: result.user.id,
-    email: result.user.email,
-    // In a full implementation, you would return a Stripe checkout URL here
-  });
+  // Create Stripe checkout session with custom enterprise pricing
+  try {
+    const checkoutSession = await createEnterpriseCheckoutSession({
+      tenantId: result.tenant.id,
+      customerEmail: invitation.email,
+      customerName: invitation.companyName,
+      customPriceUsd: selectedPrice,
+      billingInterval: selectedInterval,
+      successUrl: `${env.WEB_BASE_URL}/checkout-success?session_id={CHECKOUT_SESSION_ID}&enterprise=true`,
+      cancelUrl: `${env.WEB_BASE_URL}/enterprise/accept/${token}?cancelled=true`,
+    });
+
+    res.json({
+      success: true,
+      message: 'Account created successfully. Please complete payment.',
+      tenantId: result.tenant.id,
+      userId: result.user.id,
+      email: result.user.email,
+      checkoutUrl: checkoutSession.url,
+    });
+  } catch (stripeError) {
+    console.error('[enterprise-invitation] Stripe checkout creation failed:', stripeError);
+    // Account was created but checkout failed - return success with login redirect
+    res.json({
+      success: true,
+      message: 'Account created. Payment setup failed, please contact support.',
+      tenantId: result.tenant.id,
+      userId: result.user.id,
+      email: result.user.email,
+      checkoutUrl: null,
+    });
+  }
 });
 
 // Checkout Status - public endpoint for checking checkout completion

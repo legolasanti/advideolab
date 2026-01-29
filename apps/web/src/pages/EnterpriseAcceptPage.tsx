@@ -53,11 +53,16 @@ const EnterpriseAcceptPage = () => {
   const acceptMutation = useMutation({
     mutationFn: async (data: { password: string; name?: string; billingInterval?: string }) => {
       const { data: result } = await api.post(`/public/enterprise-invitation/${token}/accept`, data);
-      return result;
+      return result as { success: boolean; checkoutUrl?: string | null };
     },
-    onSuccess: () => {
-      // Redirect to login page after successful acceptance
-      navigate('/login?enterprise=accepted');
+    onSuccess: (data) => {
+      // If we have a checkout URL, redirect to Stripe
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        // Fallback to login page if no checkout URL
+        navigate('/login?enterprise=accepted');
+      }
     },
   });
 
@@ -391,7 +396,7 @@ const EnterpriseAcceptPage = () => {
                     <Check className="h-4 w-4" />
                     <p className="text-sm font-medium">Account created successfully!</p>
                   </div>
-                  <p className="text-xs text-emerald-400 mt-1">Redirecting to login...</p>
+                  <p className="text-xs text-emerald-400 mt-1">Redirecting to payment...</p>
                 </div>
               )}
 
