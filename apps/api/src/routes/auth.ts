@@ -98,6 +98,7 @@ const serializeTenant = (tenant?: TenantWithPlan | null) => {
     subscriptionPeriodEnd: tenant.subscriptionPeriodEnd,
     subscriptionCancelAt: tenant.subscriptionCancelAt,
     subscriptionCanceledAt: tenant.subscriptionCanceledAt,
+    tenantType: tenant.tenantType,
   };
 };
 

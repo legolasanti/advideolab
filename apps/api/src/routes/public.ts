@@ -3,10 +3,11 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { getCmsSection } from '../services/cms';
-import { getEmailStatus, sendOwnerContactNotification, sendContactConfirmation } from '../services/email';
+import { getEmailStatus, sendOwnerContactNotification, sendContactConfirmation, sendEnterpriseContactNotification, sendEnterpriseContactConfirmation } from '../services/email';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { trackMarketingEvent } from '../services/marketing';
+import { hashPassword } from '../services/password';
 import { MarketingEventType } from '@prisma/client';
 
 const router = Router();
@@ -25,6 +26,15 @@ const contactSchema = z.object({
   company: z.string().optional(),
   message: z.string().min(10),
   source: z.string().min(1).optional(),
+});
+
+const enterpriseContactSchema = z.object({
+  name: z.string().min(2).max(128),
+  email: z.string().email().max(255),
+  phone: z.string().max(32).optional().nullable(),
+  companyName: z.string().max(255).optional().nullable(),
+  website: z.string().url().max(512).optional().nullable().or(z.literal('')),
+  message: z.string().max(2000).optional().nullable(),
 });
 
 const analyticsEventSchema = z.object({
@@ -123,6 +133,57 @@ router.post('/contact', contactLimiter, async (req, res) => {
   }
 });
 
+// Enterprise Contact Form
+router.post('/enterprise-contact', contactLimiter, async (req, res) => {
+  try {
+    const payload = enterpriseContactSchema.parse(req.body);
+    const { configured, notificationEmail: target } = await getEmailStatus();
+    console.info('[enterprise-contact] inbound inquiry', { email: payload.email, company: payload.companyName, configured: Boolean(target) });
+
+    // Save to database
+    await prisma.enterpriseContactRequest.create({
+      data: {
+        email: payload.email,
+        name: payload.name,
+        phone: payload.phone || null,
+        companyName: payload.companyName || null,
+        website: payload.website || null,
+        message: payload.message || null,
+        source: 'pricing_page',
+      },
+    });
+
+    if (!configured) {
+      console.warn('[enterprise-contact] SMTP not configured, saved to DB only');
+      return res.json({ ok: true, message: 'Thanks! We received your inquiry and will contact you soon.' });
+    }
+
+    // Send notification to admin
+    await sendEnterpriseContactNotification({
+      name: payload.name,
+      email: payload.email,
+      phone: payload.phone,
+      companyName: payload.companyName,
+      website: payload.website,
+      message: payload.message,
+    });
+
+    // Send confirmation to user
+    await sendEnterpriseContactConfirmation({
+      email: payload.email,
+      name: payload.name,
+    });
+
+    return res.json({ ok: true, message: 'Thanks! We received your inquiry and will contact you within 24 hours.' });
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ ok: false, issues: err.issues });
+    }
+    console.error('[enterprise-contact] failed', err);
+    return res.status(500).json({ ok: false, error: 'enterprise_contact_failed' });
+  }
+});
+
 // Blog Public Endpoints
 router.get('/blog', async (req, res) => {
   const posts = await prisma.blogPost.findMany({
@@ -182,6 +243,175 @@ router.post('/coupons/validate', async (req, res) => {
     code: coupon.code,
     type: coupon.type,
     value: coupon.value,
+  });
+});
+
+// Enterprise Invitation - Validate token
+router.get('/enterprise-invitation/:token', async (req, res) => {
+  const { token } = req.params;
+  if (!token || token.length < 32) {
+    return res.status(400).json({ error: 'invalid_token' });
+  }
+
+  // Hash the token to compare with stored hash
+  const tokenHash = crypto.createHash('sha256').update(Buffer.from(token, 'hex')).digest('hex');
+
+  const invitation = await prisma.enterpriseInvitation.findUnique({
+    where: { tokenHash },
+  });
+
+  if (!invitation) {
+    return res.status(404).json({ error: 'invitation_not_found' });
+  }
+
+  if (invitation.status === 'cancelled') {
+    return res.status(400).json({ error: 'invitation_cancelled' });
+  }
+
+  if (invitation.status === 'accepted') {
+    return res.status(400).json({ error: 'invitation_already_accepted' });
+  }
+
+  if (invitation.expiresAt < new Date()) {
+    // Mark as expired if not already
+    if (invitation.status !== 'expired') {
+      await prisma.enterpriseInvitation.update({
+        where: { id: invitation.id },
+        data: { status: 'expired' },
+      });
+    }
+    return res.status(400).json({ error: 'invitation_expired' });
+  }
+
+  res.json({
+    id: invitation.id,
+    email: invitation.email,
+    companyName: invitation.companyName,
+    customMonthlyPriceUsd: invitation.customMonthlyPriceUsd,
+    customAnnualPriceUsd: invitation.customAnnualPriceUsd,
+    billingInterval: invitation.billingInterval,
+    maxSubCompanies: invitation.maxSubCompanies,
+    maxAdditionalUsers: invitation.maxAdditionalUsers,
+    totalVideoCredits: invitation.totalVideoCredits,
+    expiresAt: invitation.expiresAt,
+  });
+});
+
+// Enterprise Invitation - Accept and create account
+const acceptInvitationSchema = z.object({
+  password: z.string().min(8).max(128),
+  name: z.string().min(2).max(128).optional(),
+  billingInterval: z.enum(['monthly', 'annual']).optional(),
+});
+
+router.post('/enterprise-invitation/:token/accept', contactLimiter, async (req, res) => {
+  const { token } = req.params;
+  if (!token || token.length < 32) {
+    return res.status(400).json({ error: 'invalid_token' });
+  }
+
+  let body;
+  try {
+    body = acceptInvitationSchema.parse(req.body);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: 'validation_error', issues: err.issues });
+    }
+    throw err;
+  }
+
+  // Hash the token
+  const tokenHash = crypto.createHash('sha256').update(Buffer.from(token, 'hex')).digest('hex');
+
+  const invitation = await prisma.enterpriseInvitation.findUnique({
+    where: { tokenHash },
+  });
+
+  if (!invitation) {
+    return res.status(404).json({ error: 'invitation_not_found' });
+  }
+
+  if (invitation.status !== 'pending') {
+    return res.status(400).json({ error: `invitation_${invitation.status}` });
+  }
+
+  if (invitation.expiresAt < new Date()) {
+    await prisma.enterpriseInvitation.update({
+      where: { id: invitation.id },
+      data: { status: 'expired' },
+    });
+    return res.status(400).json({ error: 'invitation_expired' });
+  }
+
+  // Check if email is already registered
+  const existingUser = await prisma.user.findUnique({
+    where: { email: invitation.email },
+  });
+
+  if (existingUser) {
+    return res.status(400).json({ error: 'email_already_registered' });
+  }
+
+  // Hash password
+  const passwordHash = await hashPassword(body.password);
+
+  // Create tenant and user in a transaction
+  const result = await prisma.$transaction(async (tx) => {
+    // Create enterprise tenant
+    const tenant = await tx.tenant.create({
+      data: {
+        name: invitation.companyName,
+        status: 'pending', // Will be activated after payment
+        tenantType: 'enterprise',
+      },
+    });
+
+    // Create enterprise settings
+    await tx.enterpriseSettings.create({
+      data: {
+        tenantId: tenant.id,
+        maxSubCompanies: invitation.maxSubCompanies,
+        maxAdditionalUsers: invitation.maxAdditionalUsers,
+        totalVideoCredits: invitation.totalVideoCredits,
+        customMonthlyPriceUsd: invitation.customMonthlyPriceUsd,
+      },
+    });
+
+    // Create admin user
+    const user = await tx.user.create({
+      data: {
+        email: invitation.email,
+        passwordHash,
+        emailVerifiedAt: new Date(), // Skip verification for enterprise
+        role: 'tenant_admin',
+        tenantId: tenant.id,
+      },
+    });
+
+    // Update invitation
+    await tx.enterpriseInvitation.update({
+      where: { id: invitation.id },
+      data: {
+        status: 'accepted',
+        acceptedAt: new Date(),
+        createdTenantId: tenant.id,
+      },
+    });
+
+    return { tenant, user };
+  });
+
+  // TODO: Create Stripe checkout session for enterprise pricing
+  // For now, return success and let them log in
+  // The payment flow will be handled separately
+
+  res.json({
+    success: true,
+    message: 'Account created successfully. Please proceed to payment.',
+    tenantId: result.tenant.id,
+    userId: result.user.id,
+    email: result.user.email,
+    // In a full implementation, you would return a Stripe checkout URL here
   });
 });
 

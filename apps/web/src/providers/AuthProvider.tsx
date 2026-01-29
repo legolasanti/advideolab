@@ -22,6 +22,7 @@ type TenantInfo = {
   defaultLogoPos?: string;
   defaultLogoScale?: number;
   stripeCustomerId?: string | null;
+  tenantType?: 'standard' | 'enterprise' | 'sub_company';
 };
 
 type AuthContextValue = {

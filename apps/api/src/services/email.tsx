@@ -841,6 +841,200 @@ export const sendEmailTest = async () => {
   return ok;
 };
 
+const buildEnterpriseContactEmail = ({
+  name,
+  email,
+  phone,
+  companyName,
+  website,
+  message,
+}: {
+  name: string;
+  email: string;
+  phone?: string | null;
+  companyName?: string | null;
+  website?: string | null;
+  message?: string | null;
+}): EmailTemplate => {
+  const subject = `[Advideolab] Enterprise Inquiry from ${companyName || name}`;
+  const safeName = escapeHtml(name);
+  const safeEmail = escapeHtml(email);
+  const mailtoHref = escapeAttr(sanitizeUrl(`mailto:${email}`, new Set(['mailto:'])) ?? '#');
+  const safePhone = phone ? escapeHtml(phone) : '—';
+  const safeCompany = companyName ? escapeHtml(companyName) : '—';
+  const safeWebsite = website ? escapeHtml(website) : '—';
+  const websiteHref = website ? escapeAttr(sanitizeUrl(website) ?? '#') : null;
+  const safeMessage = message ? escapeHtml(message).replace(/\n/g, '<br />') : '—';
+
+  const text = [
+    `New Enterprise Inquiry!`,
+    '',
+    `Name: ${name}`,
+    `Email: ${email}`,
+    `Phone: ${phone || '—'}`,
+    `Company: ${companyName || '—'}`,
+    `Website: ${website || '—'}`,
+    '',
+    `Message:`,
+    message || '—',
+  ].join('\n');
+
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">New Enterprise Inquiry</h2>
+    <p>A potential enterprise customer has submitted an inquiry through the pricing page.</p>
+    <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: 12px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 4px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.7);">Enterprise Lead</p>
+      <p style="margin: 0; font-size: 18px; font-weight: 600; color: white;">${safeCompany !== '—' ? safeCompany : safeName}</p>
+    </div>
+    <div style="background-color: #f8fafc; border-radius: 12px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 12px 0;"><strong>Name:</strong> ${safeName}</p>
+      <p style="margin: 0 0 12px 0;"><strong>Email:</strong> <a href="${mailtoHref}" style="color: #6366f1;">${safeEmail}</a></p>
+      <p style="margin: 0 0 12px 0;"><strong>Phone:</strong> ${safePhone}</p>
+      <p style="margin: 0 0 12px 0;"><strong>Company:</strong> ${safeCompany}</p>
+      <p style="margin: 0;"><strong>Website:</strong> ${websiteHref ? `<a href="${websiteHref}" style="color: #6366f1;">${safeWebsite}</a>` : safeWebsite}</p>
+    </div>
+    ${message ? `
+    <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 12px 0; font-weight: 600; color: #1e293b;">Message:</p>
+      <p style="margin: 0; color: #475569;">${safeMessage}</p>
+    </div>
+    ` : ''}
+    <p><a href="${mailtoHref}" style="${buttonStyle}">Reply to ${safeName}</a></p>
+  `);
+
+  return { subject, text, html };
+};
+
+const buildEnterpriseContactConfirmationEmail = ({
+  name,
+}: {
+  name: string;
+}): EmailTemplate => {
+  const safeName = escapeHtml(name);
+  const subject = 'Thank You for Your Enterprise Inquiry — Advideolab';
+  const text = [
+    `Hi ${name},`,
+    '',
+    'Thank you for your interest in Advideolab Enterprise!',
+    '',
+    'We have received your inquiry and a member of our team will reach out to you within 24 hours to discuss your specific needs and provide a custom solution tailored to your organization.',
+    '',
+    'In the meantime, feel free to explore our platform and see what Advideolab can do for your video production needs.',
+    '',
+    'Best regards,',
+    'The Advideolab Enterprise Team',
+  ].join('\n');
+
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">Thank You for Your Enterprise Inquiry!</h2>
+    <p>Hi ${safeName},</p>
+    <p>Thank you for your interest in <strong>Advideolab Enterprise</strong>!</p>
+    <p>We have received your inquiry and a member of our team will reach out to you within <strong>24 hours</strong> to discuss your specific needs and provide a custom solution tailored to your organization.</p>
+    <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
+      <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: white;">What to expect:</p>
+      <ul style="margin: 0; padding-left: 20px; color: rgba(255,255,255,0.9);">
+        <li style="margin-bottom: 8px;">A personalized consultation with our enterprise team</li>
+        <li style="margin-bottom: 8px;">Custom pricing based on your volume needs</li>
+        <li style="margin-bottom: 8px;">Discussion of sub-company management features</li>
+        <li>Dedicated support options</li>
+      </ul>
+    </div>
+    <p>In the meantime, feel free to explore our platform and see what Advideolab can do for your video production needs.</p>
+    <p style="margin-top: 24px;"><a href="https://advideolab.com" style="${buttonStyle}">Visit Our Website</a></p>
+  `);
+
+  return { subject, text, html };
+};
+
+const buildEnterpriseInvitationEmail = ({
+  companyName,
+  customMonthlyPriceUsd,
+  customAnnualPriceUsd,
+  billingInterval,
+  maxSubCompanies,
+  totalVideoCredits,
+  acceptUrl,
+  expiresAt,
+}: {
+  companyName: string;
+  customMonthlyPriceUsd: number;
+  customAnnualPriceUsd: number | null;
+  billingInterval: string;
+  maxSubCompanies: number;
+  totalVideoCredits: number;
+  acceptUrl: string;
+  expiresAt: Date;
+}): EmailTemplate => {
+  const safeCompany = escapeHtml(companyName);
+  const safeAcceptHref = escapeAttr(sanitizeUrl(acceptUrl) ?? '#');
+  const expiresLabel = expiresAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const priceLabel = billingInterval === 'annual' && customAnnualPriceUsd
+    ? `$${customAnnualPriceUsd}/year`
+    : `$${customMonthlyPriceUsd}/month`;
+
+  const subject = `You're Invited to Advideolab Enterprise`;
+  const text = [
+    `You've been invited to join Advideolab Enterprise!`,
+    '',
+    `Company: ${companyName}`,
+    `Plan: Enterprise (${priceLabel})`,
+    `Video Credits: ${totalVideoCredits}/month`,
+    `Sub-companies: Up to ${maxSubCompanies}`,
+    '',
+    `Accept your invitation: ${acceptUrl}`,
+    '',
+    `This invitation expires on ${expiresLabel}.`,
+    '',
+    'Best regards,',
+    'The Advideolab Team',
+  ].join('\n');
+
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">You're Invited to Advideolab Enterprise!</h2>
+    <p>Great news! You've been invited to join <strong>Advideolab Enterprise</strong> for <strong>${safeCompany}</strong>.</p>
+
+    <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
+      <p style="margin: 0 0 4px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.7);">Your Enterprise Plan</p>
+      <p style="margin: 0 0 16px 0; font-size: 24px; font-weight: 700; color: white;">${escapeHtml(priceLabel)}</p>
+      <div style="display: flex; gap: 24px;">
+        <div>
+          <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; color: rgba(255,255,255,0.7);">Video Credits</p>
+          <p style="margin: 0; font-size: 18px; font-weight: 600; color: white;">${totalVideoCredits}/mo</p>
+        </div>
+        <div>
+          <p style="margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; color: rgba(255,255,255,0.7);">Sub-companies</p>
+          <p style="margin: 0; font-size: 18px; font-weight: 600; color: white;">Up to ${maxSubCompanies}</p>
+        </div>
+      </div>
+    </div>
+
+    <div style="background-color: #f8fafc; border-radius: 12px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 12px 0; font-weight: 600; color: #1e293b;">Enterprise Features Include:</p>
+      <ul style="margin: 0; padding-left: 20px; color: #475569;">
+        <li style="margin-bottom: 8px;">Create and manage multiple sub-companies</li>
+        <li style="margin-bottom: 8px;">Shared credit pool across all sub-companies</li>
+        <li style="margin-bottom: 8px;">Team user management with role controls</li>
+        <li style="margin-bottom: 8px;">Priority support</li>
+        <li>Dedicated account manager</li>
+      </ul>
+    </div>
+
+    <p style="margin: 28px 0; text-align: center;">
+      <a href="${safeAcceptHref}" style="${buttonStyle}">Accept Invitation & Get Started</a>
+    </p>
+
+    <div style="background-color: #fef3c7; border: 1px solid #fcd34d; border-radius: 12px; padding: 16px; margin: 24px 0;">
+      <p style="margin: 0; color: #92400e; font-size: 14px;">
+        <strong>Note:</strong> This invitation expires on ${escapeHtml(expiresLabel)}.
+      </p>
+    </div>
+
+    <p style="color: #64748b; font-size: 14px;">If you have any questions, feel free to reply to this email.</p>
+  `);
+
+  return { subject, text, html };
+};
+
 const buildJobFailedEmail = ({
   jobId,
   tenantName,
@@ -901,6 +1095,90 @@ const buildJobFailedEmail = ({
   `);
 
   return { subject, text, html };
+};
+
+export const sendEnterpriseContactNotification = async ({
+  name,
+  email,
+  phone,
+  companyName,
+  website,
+  message,
+}: {
+  name: string;
+  email: string;
+  phone?: string | null;
+  companyName?: string | null;
+  website?: string | null;
+  message?: string | null;
+}): Promise<boolean> => {
+  const { notificationEmail: target } = await resolveEmailConfig();
+  if (!target) {
+    console.warn('[email] enterprise contact notification skipped; notificationEmail missing');
+    return false;
+  }
+  const template = buildEnterpriseContactEmail({ name, email, phone, companyName, website, message });
+  return sendMail({
+    to: target,
+    subject: template.subject,
+    text: template.text,
+    html: template.html,
+  }, 'enterprise_contact');
+};
+
+export const sendEnterpriseContactConfirmation = async ({
+  email,
+  name,
+}: {
+  email: string;
+  name: string;
+}): Promise<boolean> => {
+  const template = buildEnterpriseContactConfirmationEmail({ name });
+  return sendMail({
+    to: email,
+    subject: template.subject,
+    text: template.text,
+    html: template.html,
+  }, 'enterprise_contact_confirmation');
+};
+
+export const sendEnterpriseInvitationEmail = async ({
+  email,
+  companyName,
+  customMonthlyPriceUsd,
+  customAnnualPriceUsd,
+  billingInterval,
+  maxSubCompanies,
+  totalVideoCredits,
+  acceptUrl,
+  expiresAt,
+}: {
+  email: string;
+  companyName: string;
+  customMonthlyPriceUsd: number;
+  customAnnualPriceUsd: number | null;
+  billingInterval: string;
+  maxSubCompanies: number;
+  totalVideoCredits: number;
+  acceptUrl: string;
+  expiresAt: Date;
+}): Promise<boolean> => {
+  const template = buildEnterpriseInvitationEmail({
+    companyName,
+    customMonthlyPriceUsd,
+    customAnnualPriceUsd,
+    billingInterval,
+    maxSubCompanies,
+    totalVideoCredits,
+    acceptUrl,
+    expiresAt,
+  });
+  return sendMail({
+    to: email,
+    subject: template.subject,
+    text: template.text,
+    html: template.html,
+  }, 'enterprise_invitation');
 };
 
 export const sendJobFailedNotification = async ({

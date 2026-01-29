@@ -66,6 +66,19 @@ enum WebhookEventStatus {
   failed
 }
 
+enum TenantType {
+  standard
+  enterprise
+  sub_company
+}
+
+enum EnterpriseInvitationStatus {
+  pending
+  accepted
+  expired
+  cancelled
+}
+
 enum MarketingEventType {
   visit
   signup_started
@@ -87,85 +100,97 @@ model Plan {
 }
 
 model Tenant {
-  id                   String        @id @default(cuid())
-  name                 String
-  planId               String?
-  resetDay             Int           @default(1)
-  n8nBaseUrl           String? // @deprecated - now in SystemConfig (global)
-  n8nProcessPath       String? // @deprecated - now in SystemConfig (global)
-  logoUrl              String?
-  defaultWatermarkText String?
-  defaultLogoPos       String?       @db.VarChar(32)
-  defaultLogoScale     Int?          @default(100)
-  status               TenantStatus  @default(pending)
-  createdAt            DateTime      @default(now())
-  monthlyVideoLimit    Int           @default(0)
-  bonusCredits         Int           @default(0)
-  videosUsedThisCycle  Int           @default(0)
-  billingCycleStart    DateTime      @default(now())
-  billingNotes         String?       @db.Text
-  nextBillingDate      DateTime?
-  requestedPlanCode    String?
-  paymentStatus        PaymentStatus @default(payment_pending)
-  billingInterval      BillingInterval @default(monthly)
-  billingEntityType    BillingEntityType @default(company)
-  billingCompanyName   String?
-  billingCountry       String?       @db.VarChar(2)
-  billingVatNumber     String?       @db.VarChar(64)
-  appliedCouponCode    String?       @db.VarChar(64)
-  stripeCustomerId     String?       @unique @db.VarChar(64)
-  stripeSubscriptionId String?       @unique @db.VarChar(64)
-  stripeCheckoutSessionId String?    @unique @db.VarChar(128)
+  id                      String            @id @default(cuid())
+  name                    String
+  planId                  String?
+  resetDay                Int               @default(1)
+  n8nBaseUrl              String? // @deprecated - now in SystemConfig (global)
+  n8nProcessPath          String? // @deprecated - now in SystemConfig (global)
+  logoUrl                 String?
+  defaultWatermarkText    String?
+  defaultLogoPos          String?           @db.VarChar(32)
+  defaultLogoScale        Int?              @default(100)
+  status                  TenantStatus      @default(pending)
+  createdAt               DateTime          @default(now())
+  monthlyVideoLimit       Int               @default(0)
+  bonusCredits            Int               @default(0)
+  videosUsedThisCycle     Int               @default(0)
+  billingCycleStart       DateTime          @default(now())
+  billingNotes            String?           @db.Text
+  nextBillingDate         DateTime?
+  requestedPlanCode       String?
+  paymentStatus           PaymentStatus     @default(payment_pending)
+  billingInterval         BillingInterval   @default(monthly)
+  billingEntityType       BillingEntityType @default(company)
+  billingCompanyName      String?
+  billingCountry          String?           @db.VarChar(2)
+  billingVatNumber        String?           @db.VarChar(64)
+  appliedCouponCode       String?           @db.VarChar(64)
+  stripeCustomerId        String?           @unique @db.VarChar(64)
+  stripeSubscriptionId    String?           @unique @db.VarChar(64)
+  stripeCheckoutSessionId String?           @unique @db.VarChar(128)
   subscriptionPeriodStart DateTime?
   subscriptionPeriodEnd   DateTime?
   subscriptionCancelAt    DateTime?
   subscriptionCanceledAt  DateTime?
 
-  planDetails   Plan?               @relation(fields: [planId], references: [id])
-  users         User[]
-  apiKeys       ApiKey[]
-  usages        Usage[]
-  assets        Asset[]
-  jobs          Job[]
-  audits        Audit[]
-  owner         Owner[]
-  notifications AdminNotification[]
+  // Enterprise hierarchy
+  tenantType       TenantType @default(standard)
+  parentTenantId   String?
+  allocatedCredits Int?       @default(0) // For sub-companies: credits allocated by parent
+
+  planDetails               Plan?                      @relation(fields: [planId], references: [id])
+  users                     User[]
+  apiKeys                   ApiKey[]
+  usages                    Usage[]
+  assets                    Asset[]
+  jobs                      Job[]
+  audits                    Audit[]
+  owner                     Owner[]
+  notifications             AdminNotification[]
   subscriptionCancellations SubscriptionCancellation[]
-  marketingEvents MarketingEvent[]
-  refreshTokens RefreshToken[]
+  marketingEvents           MarketingEvent[]
+  refreshTokens             RefreshToken[]
+
+  // Enterprise relations
+  parentTenant       Tenant?             @relation("SubCompanies", fields: [parentTenantId], references: [id])
+  subCompanies       Tenant[]            @relation("SubCompanies")
+  enterpriseSettings EnterpriseSettings?
 
   @@index([planId])
+  @@index([parentTenantId])
+  @@index([tenantType])
 }
 
 model Owner {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  tokenVersion Int      @default(0)
-  createdAt    DateTime @default(now())
-  tenantId     String?
-  tenant       Tenant?  @relation(fields: [tenantId], references: [id])
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String
+  tokenVersion  Int            @default(0)
+  createdAt     DateTime       @default(now())
+  tenantId      String?
+  tenant        Tenant?        @relation(fields: [tenantId], references: [id])
   refreshTokens RefreshToken[]
 }
 
 model User {
-  id           String   @id @default(cuid())
-  tenantId     String
-  email        String   @unique
-  passwordHash String
-  googleId     String?  @unique
+  id              String    @id @default(cuid())
+  tenantId        String
+  email           String    @unique
+  passwordHash    String
+  googleId        String?   @unique
   emailVerifiedAt DateTime?
-  tokenVersion Int      @default(0)
-  role         UserRole @default(user)
-  createdAt    DateTime @default(now())
+  tokenVersion    Int       @default(0)
+  role            UserRole  @default(user)
+  createdAt       DateTime  @default(now())
 
-  tenant Tenant  @relation(fields: [tenantId], references: [id])
-  audits Audit[]
-  jobs   Job[]
+  tenant                    Tenant                     @relation(fields: [tenantId], references: [id])
+  audits                    Audit[]
+  jobs                      Job[]
   subscriptionCancellations SubscriptionCancellation[]
-  marketingEvents MarketingEvent[]
-  emailVerificationTokens EmailVerificationToken[]
-  refreshTokens RefreshToken[]
+  marketingEvents           MarketingEvent[]
+  emailVerificationTokens   EmailVerificationToken[]
+  refreshTokens             RefreshToken[]
 }
 
 // @deprecated - This table is now legacy. New installations use SystemConfig.apiKeysEncrypted (global)
@@ -281,31 +306,31 @@ model CmsContent {
 }
 
 model Coupon {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  type      String   // 'percent' | 'fixed'
-  value     Int      // Amount in cents or percentage (e.g. 20 for 20%)
-  expiresAt DateTime?
-  isActive  Boolean  @default(true)
-  maxUses   Int?
-  createdAt DateTime @default(now())
-  usedCount Int      @default(0)
-  stripeCouponId String? @unique
+  id             String    @id @default(cuid())
+  code           String    @unique
+  type           String // 'percent' | 'fixed'
+  value          Int // Amount in cents or percentage (e.g. 20 for 20%)
+  expiresAt      DateTime?
+  isActive       Boolean   @default(true)
+  maxUses        Int?
+  createdAt      DateTime  @default(now())
+  usedCount      Int       @default(0)
+  stripeCouponId String?   @unique
 }
 
 model SubscriptionCancellation {
-  id                String         @id @default(cuid())
-  tenantId          String
-  userId            String?
-  planCode          String?
-  billingInterval   BillingInterval @default(monthly)
-  reason            String
-  details           Json?
-  monthsActive      Int?
-  requestedAt       DateTime       @default(now())
-  effectiveAt       DateTime?
-  canceledAt        DateTime?
-  stripeSubscriptionId String?     @db.VarChar(64)
+  id                   String          @id @default(cuid())
+  tenantId             String
+  userId               String?
+  planCode             String?
+  billingInterval      BillingInterval @default(monthly)
+  reason               String
+  details              Json?
+  monthsActive         Int?
+  requestedAt          DateTime        @default(now())
+  effectiveAt          DateTime?
+  canceledAt           DateTime?
+  stripeSubscriptionId String?         @db.VarChar(64)
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
   user   User?  @relation(fields: [userId], references: [id])
@@ -321,12 +346,12 @@ model BlogPost {
   content   String   @db.Text
   excerpt   String?  @db.Text
   image     String?
-  category  String?  // 'blog', 'news', 'update', etc.
+  category  String? // 'blog', 'news', 'update', etc.
   author    String?
   published Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  meta      Json?    // For SEO tags
+  meta      Json? // For SEO tags
 }
 
 model SystemConfig {
@@ -339,15 +364,15 @@ model SystemConfig {
   emailFrom         String?
   notificationEmail String?
 
-  stripePublishableKey        String?
-  stripeSecretKeyEncrypted    String?
+  stripePublishableKey         String?
+  stripeSecretKeyEncrypted     String?
   stripeWebhookSecretEncrypted String?
-  stripePriceIdStarter        String?
-  stripePriceIdGrowth         String?
-  stripePriceIdScale          String?
-  stripePriceIdStarterAnnual  String?
-  stripePriceIdGrowthAnnual   String?
-  stripePriceIdScaleAnnual    String?
+  stripePriceIdStarter         String?
+  stripePriceIdGrowth          String?
+  stripePriceIdScale           String?
+  stripePriceIdStarterAnnual   String?
+  stripePriceIdGrowthAnnual    String?
+  stripePriceIdScaleAnnual     String?
 
   sandboxTenantId String?
 
@@ -363,7 +388,7 @@ model SystemConfig {
   customBodyStart String? @db.Text
   customBodyEnd   String? @db.Text
 
-  googleOAuthClientId String?
+  googleOAuthClientId              String?
   googleOAuthClientSecretEncrypted String?
 
   createdAt DateTime @default(now())
@@ -398,17 +423,17 @@ model EmailVerificationToken {
 }
 
 model RefreshToken {
-  id        String   @id @default(cuid())
-  tokenHash String   @unique
-  userId    String?
-  ownerId   String?
-  tenantId  String?
-  tokenVersion Int   @default(0)
-  ipAddress String?
-  userAgent String?
-  createdAt DateTime @default(now())
-  expiresAt DateTime
-  revokedAt DateTime?
+  id           String    @id @default(cuid())
+  tokenHash    String    @unique
+  userId       String?
+  ownerId      String?
+  tenantId     String?
+  tokenVersion Int       @default(0)
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
 
   user   User?   @relation(fields: [userId], references: [id])
   owner  Owner?  @relation(fields: [ownerId], references: [id])
@@ -454,20 +479,20 @@ model StripeWebhookEvent {
 }
 
 model ShowcaseVideo {
-  id          String   @id @default(cuid())
-  title       String?
-  videoUrl    String
+  id           String   @id @default(cuid())
+  title        String?
+  videoUrl     String
   thumbnailUrl String?
-  sortOrder   Int      @default(0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  sortOrder    Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([isActive, sortOrder])
 }
 
 model MediaAsset {
-  id        String          @id @default(cuid())
+  id        String         @id @default(cuid())
   type      MediaAssetType
   name      String
   altText   String?
@@ -475,8 +500,87 @@ model MediaAsset {
   mimeType  String
   sizeBytes Int?
   meta      Json?
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
   @@index([type, createdAt])
+}
+
+// Enterprise Contact Form submissions from pricing page
+model EnterpriseContactRequest {
+  id          String    @id @default(cuid())
+  email       String
+  phone       String?
+  name        String
+  companyName String?
+  website     String?
+  message     String?   @db.Text
+  source      String?   @default("pricing_page")
+  readAt      DateTime?
+  processedAt DateTime?
+  notes       String?   @db.Text
+  createdAt   DateTime  @default(now())
+
+  @@index([email])
+  @@index([createdAt])
+}
+
+// Enterprise invitation sent by super admin
+model EnterpriseInvitation {
+  id          String                     @id @default(cuid())
+  email       String
+  companyName String
+  tokenHash   String                     @unique
+  status      EnterpriseInvitationStatus @default(pending)
+
+  // Custom pricing set by super admin
+  customMonthlyPriceUsd Int
+  customAnnualPriceUsd  Int?
+  billingInterval       BillingInterval @default(monthly)
+
+  // Enterprise limits
+  maxSubCompanies    Int @default(5)
+  maxAdditionalUsers Int @default(10)
+  totalVideoCredits  Int @default(100)
+
+  // Stripe custom price ID
+  stripePriceId String?
+
+  // Tracking
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdTenantId String?
+  sentAt          DateTime  @default(now())
+  resentAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([tokenHash])
+  @@index([status])
+}
+
+// Enterprise settings stored per enterprise tenant
+model EnterpriseSettings {
+  id       String @id @default(cuid())
+  tenantId String @unique
+
+  // Limits set by super admin
+  maxSubCompanies    Int @default(5)
+  maxAdditionalUsers Int @default(10)
+  totalVideoCredits  Int @default(100)
+
+  // Credit pool tracking
+  allocatedCredits Int @default(0)
+
+  // Custom pricing reference
+  stripePriceId         String?
+  customMonthlyPriceUsd Int?
+  customAnnualPriceUsd  Int?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

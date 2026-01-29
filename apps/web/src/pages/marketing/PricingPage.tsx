@@ -7,6 +7,7 @@ import { formatSupportedLanguages } from '../../lib/languages';
 import { pricingSubtitle } from '../../content/marketing';
 import { useCmsSection } from '../../hooks/useCmsSection';
 import { useOptionalAuth } from '../../providers/AuthProvider';
+import EnterpriseContactModal from '../../components/EnterpriseContactModal';
 
 const baseCard = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
 
@@ -20,6 +21,7 @@ const Check = () => (
 
 const PricingPage = () => {
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'annual'>('monthly');
+  const [isEnterpriseModalOpen, setIsEnterpriseModalOpen] = useState(false);
   const isAnnual = billingInterval === 'annual';
   const { data: pricingCms } = useCmsSection('pricing', { subtitle: pricingSubtitle });
   const auth = useOptionalAuth();
@@ -105,7 +107,7 @@ const PricingPage = () => {
 
       {/* Plan cards */}
       <section className="mx-auto max-w-7xl px-6 pb-16">
-        <div className="grid gap-8 md:grid-cols-3">
+        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
           {plans.map((plan) => {
             const info = PLAN_DEFINITIONS[plan.code];
             const priceUsd = isAnnual ? info.annualPriceUsd : info.priceUsd;
@@ -172,6 +174,68 @@ const PricingPage = () => {
               </article>
             );
           })}
+
+          {/* Enterprise Tier */}
+          <article className="relative flex flex-col rounded-2xl border-2 border-indigo-200 bg-gradient-to-b from-indigo-50/50 to-white p-8 hover:border-indigo-300 hover:shadow-lg transition-all">
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-1.5 text-xs font-bold uppercase tracking-wider text-white shadow-lg">
+              Enterprise
+            </div>
+            <h2 className="text-xl font-bold text-slate-900">Enterprise</h2>
+            <p className="mt-2 text-sm text-slate-600">For agencies & large teams</p>
+
+            <div className="mt-6 flex items-end gap-2">
+              <span className="text-3xl font-bold text-slate-900">Custom</span>
+              <span className="pb-1 text-sm text-slate-500">pricing</span>
+            </div>
+
+            <div className="mt-6 space-y-3 text-sm flex-1">
+              <div className="flex items-center gap-3 text-slate-600">
+                <svg className="h-4 w-4 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Unlimited sub-companies
+              </div>
+              <div className="flex items-center gap-3 text-slate-600">
+                <svg className="h-4 w-4 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Shared credit pool
+              </div>
+              <div className="flex items-center gap-3 text-slate-600">
+                <svg className="h-4 w-4 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Team user management
+              </div>
+              <div className="flex items-center gap-3 text-slate-600">
+                <svg className="h-4 w-4 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Priority support
+              </div>
+              <div className="flex items-center gap-3 text-slate-600">
+                <svg className="h-4 w-4 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Custom video limits
+              </div>
+              <div className="flex items-center gap-3 text-slate-600">
+                <svg className="h-4 w-4 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Dedicated account manager
+              </div>
+            </div>
+
+            <div className="mt-8">
+              <button
+                onClick={() => setIsEnterpriseModalOpen(true)}
+                className="inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 hover:from-indigo-700 hover:to-purple-700 transition"
+              >
+                Contact Sales
+              </button>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -179,7 +243,7 @@ const PricingPage = () => {
       <section className="mx-auto max-w-7xl px-6 pb-16">
         <div className={`${baseCard} overflow-hidden`}>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[780px] text-left text-sm">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50">
                 <tr>
                   <th className="px-6 py-5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Features</th>
@@ -196,6 +260,12 @@ const PricingPage = () => {
                       <div className="text-lg font-bold text-slate-900">{plan.name}</div>
                     </th>
                   ))}
+                  <th className="px-6 py-5 align-bottom bg-indigo-50/50">
+                    <div className="mb-3 inline-flex rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 px-3 py-1 text-xs font-bold uppercase tracking-wider text-white">
+                      Enterprise
+                    </div>
+                    <div className="text-lg font-bold text-slate-900">Enterprise</div>
+                  </th>
                 </tr>
               </thead>
 
@@ -207,6 +277,7 @@ const PricingPage = () => {
                       {plan.videosPerMonth}
                     </td>
                   ))}
+                  <td className="px-6 py-4 font-bold text-indigo-600 bg-indigo-50/50">Custom</td>
                 </tr>
                 <tr>
                   <td className="px-6 py-4 font-semibold text-slate-900">Videos Saved</td>
@@ -215,6 +286,7 @@ const PricingPage = () => {
                       {plan.videosSaved}
                     </td>
                   ))}
+                  <td className="px-6 py-4 bg-indigo-50/50">Unlimited</td>
                 </tr>
 
                 {identicalRows.map((label) => (
@@ -225,8 +297,39 @@ const PricingPage = () => {
                         <Check />
                       </td>
                     ))}
+                    <td className="px-6 py-4 bg-indigo-50/50"><Check /></td>
                   </tr>
                 ))}
+
+                {/* Enterprise-only features */}
+                <tr>
+                  <td className="px-6 py-4 font-semibold text-slate-900">Sub-companies</td>
+                  {plans.map((plan) => (
+                    <td key={plan.code} className={`px-6 py-4 text-slate-400 ${plan.popular ? 'bg-blue-50/50' : ''}`}>—</td>
+                  ))}
+                  <td className="px-6 py-4 bg-indigo-50/50"><Check /></td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-4 font-semibold text-slate-900">Shared credit pool</td>
+                  {plans.map((plan) => (
+                    <td key={plan.code} className={`px-6 py-4 text-slate-400 ${plan.popular ? 'bg-blue-50/50' : ''}`}>—</td>
+                  ))}
+                  <td className="px-6 py-4 bg-indigo-50/50"><Check /></td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-4 font-semibold text-slate-900">Team management</td>
+                  {plans.map((plan) => (
+                    <td key={plan.code} className={`px-6 py-4 text-slate-400 ${plan.popular ? 'bg-blue-50/50' : ''}`}>—</td>
+                  ))}
+                  <td className="px-6 py-4 bg-indigo-50/50"><Check /></td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-4 font-semibold text-slate-900">Priority support</td>
+                  {plans.map((plan) => (
+                    <td key={plan.code} className={`px-6 py-4 text-slate-400 ${plan.popular ? 'bg-blue-50/50' : ''}`}>—</td>
+                  ))}
+                  <td className="px-6 py-4 bg-indigo-50/50"><Check /></td>
+                </tr>
 
                 <tr>
                   <td className="px-6 py-6" />
@@ -244,6 +347,14 @@ const PricingPage = () => {
                       </button>
                     </td>
                   ))}
+                  <td className="px-6 py-6 bg-indigo-50/50">
+                    <button
+                      onClick={() => setIsEnterpriseModalOpen(true)}
+                      className="inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 hover:from-indigo-700 hover:to-purple-700 transition"
+                    >
+                      Contact Sales
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -279,7 +390,7 @@ const PricingPage = () => {
             <p className="mt-4 text-lg text-blue-100 max-w-2xl mx-auto">
               Choose your plan and start generating UGC videos in minutes. Plans start at $69/month.
             </p>
-            <div className="mt-8">
+            <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
                 to="/signup"
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-8 py-4 text-sm font-semibold text-[#2e90fa] shadow-lg transition hover:bg-blue-50"
@@ -290,10 +401,22 @@ const PricingPage = () => {
                   <path d="m12 5 7 7-7 7" />
                 </svg>
               </Link>
+              <button
+                onClick={() => setIsEnterpriseModalOpen(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-white/30 bg-white/10 px-8 py-4 text-sm font-semibold text-white transition hover:bg-white/20"
+              >
+                Enterprise? Talk to Sales
+              </button>
             </div>
           </div>
         </div>
       </section>
+
+      {/* Enterprise Contact Modal */}
+      <EnterpriseContactModal
+        isOpen={isEnterpriseModalOpen}
+        onClose={() => setIsEnterpriseModalOpen(false)}
+      />
     </div>
   );
 };

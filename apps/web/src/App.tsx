@@ -36,6 +36,12 @@ const OwnerCancellationsPage = lazy(() => import('./pages/OwnerCancellationsPage
 const OwnerShowcaseVideosPage = lazy(() => import('./pages/OwnerShowcaseVideosPage'));
 const OwnerMediaLibraryPage = lazy(() => import('./pages/OwnerMediaLibraryPage'));
 const OwnerAnalyticsPage = lazy(() => import('./pages/OwnerAnalyticsPage'));
+const OwnerEnterpriseContactsPage = lazy(() => import('./pages/OwnerEnterpriseContactsPage'));
+const OwnerEnterpriseInvitationsPage = lazy(() => import('./pages/OwnerEnterpriseInvitationsPage'));
+const EnterpriseAcceptPage = lazy(() => import('./pages/EnterpriseAcceptPage'));
+const EnterpriseDashboardPage = lazy(() => import('./pages/EnterpriseDashboardPage'));
+const EnterpriseSubCompaniesPage = lazy(() => import('./pages/EnterpriseSubCompaniesPage'));
+const EnterpriseUsersPage = lazy(() => import('./pages/EnterpriseUsersPage'));
 const LandingPage = lazy(() => import('./pages/marketing/LandingPage'));
 const LanguagesPage = lazy(() => import('./pages/marketing/LanguagesPage'));
 const PricingPage = lazy(() => import('./pages/marketing/PricingPage'));
@@ -110,6 +116,7 @@ const App = () => {
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/enterprise/accept/:token" element={<EnterpriseAcceptPage />} />
 
         {/* Protected app routes */}
         <Route
@@ -128,6 +135,8 @@ const App = () => {
           <Route path="/users" element={<UsersPage />} />
           <Route path="/owner/tenants" element={<OwnerTenantsPage />} />
           <Route path="/owner/analytics" element={<OwnerAnalyticsPage />} />
+          <Route path="/owner/enterprise-contacts" element={<OwnerEnterpriseContactsPage />} />
+          <Route path="/owner/enterprise-invitations" element={<OwnerEnterpriseInvitationsPage />} />
           <Route path="/owner/users" element={<OwnerUsersPage />} />
           <Route path="/owner/cms" element={<OwnerCmsPage />} />
           <Route path="/owner/media-library" element={<OwnerMediaLibraryPage />} />
@@ -136,6 +145,9 @@ const App = () => {
           <Route path="/owner/showcase-videos" element={<OwnerShowcaseVideosPage />} />
           <Route path="/owner/blog" element={<OwnerBlogPage />} />
           <Route path="/owner/settings" element={<OwnerSettingsPage />} />
+          <Route path="/enterprise" element={<EnterpriseDashboardPage />} />
+          <Route path="/enterprise/sub-companies" element={<EnterpriseSubCompaniesPage />} />
+          <Route path="/enterprise/users" element={<EnterpriseUsersPage />} />
         </Route>
 
         {/* Fallback: redirect to appropriate page based on domain */}

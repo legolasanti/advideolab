@@ -1311,6 +1311,223 @@ router.post('/system-config/test-email', async (_req, res) => {
   return res.json({ ok: true });
 });
 
+// === Enterprise Contact Requests ===
+
+router.get('/enterprise-contacts', async (_req, res) => {
+  const contacts = await prisma.enterpriseContactRequest.findMany({
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(contacts);
+});
+
+router.post('/enterprise-contacts/:id/mark-read', async (req, res) => {
+  const existing = await prisma.enterpriseContactRequest.findUnique({
+    where: { id: req.params.id },
+  });
+  if (!existing) {
+    return res.status(404).json({ error: 'Contact request not found' });
+  }
+  const contact = await prisma.enterpriseContactRequest.update({
+    where: { id: req.params.id },
+    data: { readAt: existing.readAt ? null : new Date() },
+  });
+  res.json(contact);
+});
+
+router.post('/enterprise-contacts/:id/process', async (req, res) => {
+  const body = z.object({
+    notes: z.string().optional().nullable(),
+  }).parse(req.body);
+
+  const existing = await prisma.enterpriseContactRequest.findUnique({
+    where: { id: req.params.id },
+  });
+  if (!existing) {
+    return res.status(404).json({ error: 'Contact request not found' });
+  }
+  const contact = await prisma.enterpriseContactRequest.update({
+    where: { id: req.params.id },
+    data: {
+      processedAt: existing.processedAt ? null : new Date(),
+      notes: body.notes ?? existing.notes,
+    },
+  });
+  res.json(contact);
+});
+
+router.put('/enterprise-contacts/:id/notes', async (req, res) => {
+  const body = z.object({
+    notes: z.string().optional().nullable(),
+  }).parse(req.body);
+
+  const existing = await prisma.enterpriseContactRequest.findUnique({
+    where: { id: req.params.id },
+  });
+  if (!existing) {
+    return res.status(404).json({ error: 'Contact request not found' });
+  }
+  const contact = await prisma.enterpriseContactRequest.update({
+    where: { id: req.params.id },
+    data: { notes: body.notes ?? null },
+  });
+  res.json(contact);
+});
+
+router.delete('/enterprise-contacts/:id', async (req, res) => {
+  const existing = await prisma.enterpriseContactRequest.findUnique({
+    where: { id: req.params.id },
+  });
+  if (!existing) {
+    return res.status(404).json({ error: 'Contact request not found' });
+  }
+  await prisma.enterpriseContactRequest.delete({ where: { id: req.params.id } });
+  res.json({ ok: true });
+});
+
+// === Enterprise Invitations ===
+
+router.get('/enterprise-invitations', async (_req, res) => {
+  const invitations = await prisma.enterpriseInvitation.findMany({
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(invitations);
+});
+
+router.post('/enterprise-invitations', async (req, res) => {
+  const body = z.object({
+    email: z.string().email().max(255),
+    companyName: z.string().min(1).max(255),
+    customMonthlyPriceUsd: z.coerce.number().int().min(1),
+    customAnnualPriceUsd: z.coerce.number().int().min(1).optional().nullable(),
+    billingInterval: z.enum(['monthly', 'annual']).optional(),
+    maxSubCompanies: z.coerce.number().int().min(1).max(100).optional(),
+    maxAdditionalUsers: z.coerce.number().int().min(1).max(100).optional(),
+    totalVideoCredits: z.coerce.number().int().min(1).max(10000).optional(),
+    expiresInDays: z.coerce.number().int().min(1).max(90).optional(),
+  }).parse(req.body);
+
+  // Generate secure token
+  const tokenBytes = crypto.randomBytes(32);
+  const token = tokenBytes.toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(tokenBytes).digest('hex');
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + (body.expiresInDays ?? 14));
+
+  const invitation = await prisma.enterpriseInvitation.create({
+    data: {
+      email: body.email,
+      companyName: body.companyName,
+      tokenHash,
+      customMonthlyPriceUsd: body.customMonthlyPriceUsd,
+      customAnnualPriceUsd: body.customAnnualPriceUsd ?? null,
+      billingInterval: body.billingInterval ?? 'monthly',
+      maxSubCompanies: body.maxSubCompanies ?? 5,
+      maxAdditionalUsers: body.maxAdditionalUsers ?? 10,
+      totalVideoCredits: body.totalVideoCredits ?? 100,
+      expiresAt,
+    },
+  });
+
+  // Send invitation email
+  const { sendEnterpriseInvitationEmail } = await import('../services/email');
+  const acceptUrl = `${env.WEB_BASE_URL}/enterprise/accept?token=${token}`;
+  await sendEnterpriseInvitationEmail({
+    email: body.email,
+    companyName: body.companyName,
+    customMonthlyPriceUsd: body.customMonthlyPriceUsd,
+    customAnnualPriceUsd: body.customAnnualPriceUsd ?? null,
+    billingInterval: body.billingInterval ?? 'monthly',
+    maxSubCompanies: body.maxSubCompanies ?? 5,
+    totalVideoCredits: body.totalVideoCredits ?? 100,
+    acceptUrl,
+    expiresAt,
+  }).catch((err) => {
+    console.error('[enterprise] Failed to send invitation email:', err);
+  });
+
+  res.json({ ...invitation, token });
+});
+
+router.post('/enterprise-invitations/:id/resend', async (req, res) => {
+  const invitation = await prisma.enterpriseInvitation.findUnique({
+    where: { id: req.params.id },
+  });
+  if (!invitation) {
+    return res.status(404).json({ error: 'Invitation not found' });
+  }
+  if (invitation.status !== 'pending') {
+    return res.status(400).json({ error: 'Can only resend pending invitations' });
+  }
+
+  // Generate new token
+  const tokenBytes = crypto.randomBytes(32);
+  const token = tokenBytes.toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(tokenBytes).digest('hex');
+
+  // Extend expiration
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 14);
+
+  const updated = await prisma.enterpriseInvitation.update({
+    where: { id: req.params.id },
+    data: {
+      tokenHash,
+      expiresAt,
+      resentAt: new Date(),
+    },
+  });
+
+  // Send invitation email
+  const { sendEnterpriseInvitationEmail } = await import('../services/email');
+  const acceptUrl = `${env.WEB_BASE_URL}/enterprise/accept?token=${token}`;
+  await sendEnterpriseInvitationEmail({
+    email: invitation.email,
+    companyName: invitation.companyName,
+    customMonthlyPriceUsd: invitation.customMonthlyPriceUsd,
+    customAnnualPriceUsd: invitation.customAnnualPriceUsd,
+    billingInterval: invitation.billingInterval,
+    maxSubCompanies: invitation.maxSubCompanies,
+    totalVideoCredits: invitation.totalVideoCredits,
+    acceptUrl,
+    expiresAt,
+  }).catch((err) => {
+    console.error('[enterprise] Failed to resend invitation email:', err);
+  });
+
+  res.json(updated);
+});
+
+router.post('/enterprise-invitations/:id/cancel', async (req, res) => {
+  const invitation = await prisma.enterpriseInvitation.findUnique({
+    where: { id: req.params.id },
+  });
+  if (!invitation) {
+    return res.status(404).json({ error: 'Invitation not found' });
+  }
+  if (invitation.status !== 'pending') {
+    return res.status(400).json({ error: 'Can only cancel pending invitations' });
+  }
+
+  const updated = await prisma.enterpriseInvitation.update({
+    where: { id: req.params.id },
+    data: { status: 'cancelled' },
+  });
+
+  res.json(updated);
+});
+
+router.delete('/enterprise-invitations/:id', async (req, res) => {
+  const invitation = await prisma.enterpriseInvitation.findUnique({
+    where: { id: req.params.id },
+  });
+  if (!invitation) {
+    return res.status(404).json({ error: 'Invitation not found' });
+  }
+  await prisma.enterpriseInvitation.delete({ where: { id: req.params.id } });
+  res.json({ ok: true });
+});
+
 // === Showcase Videos Management ===
 
 router.get('/showcase-videos', async (_req, res) => {
