@@ -195,12 +195,12 @@ const OwnerSettingsPage = () => {
         customHeadCode: normalizeNullable(customHeadCode),
         customBodyStart: normalizeNullable(customBodyStart),
         customBodyEnd: normalizeNullable(customBodyEnd),
-        googleOAuthClientId: normalizeNullable(googleOAuthClientId),
       };
 
       if (smtpPass.trim().length > 0) payload.smtpPass = smtpPass;
       if (stripeSecretKey.trim().length > 0) payload.stripeSecretKey = stripeSecretKey;
       if (stripeWebhookSecret.trim().length > 0) payload.stripeWebhookSecret = stripeWebhookSecret;
+      if (googleOAuthClientId.trim().length > 0) payload.googleOAuthClientId = googleOAuthClientId.trim();
       if (googleOAuthClientSecret.trim().length > 0) payload.googleOAuthClientSecret = googleOAuthClientSecret;
 
       const { data } = await api.put('/owner/system-config', payload);

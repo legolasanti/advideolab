@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { Prisma } from '@prisma/client';
+import { subMonths } from 'date-fns';
 import type { Coupon, Plan } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { decrypt } from '../lib/crypto';
@@ -21,6 +22,20 @@ type StripeSecrets = {
   stripe: Stripe;
   webhookSecret: string | null;
   priceIds: StripePriceIds;
+};
+
+export type TenantInvoiceSummary = {
+  id: string;
+  number: string | null;
+  status: string | null;
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  hostedInvoiceUrl: string | null;
+  invoicePdf: string | null;
+  periodStart: number | null;
+  periodEnd: number | null;
+  created: number;
 };
 
 const normalizeCode = (code?: string | null) => (code ?? '').trim().toUpperCase();
@@ -507,6 +522,41 @@ export const createStripeBillingPortalSessionForTenant = async (args: {
     throw new HttpError(500, 'Stripe did not return a billing portal URL.');
   }
   return { url: session.url };
+};
+
+export const listStripeInvoicesForTenant = async (tenantId: string): Promise<TenantInvoiceSummary[]> => {
+  const { stripe } = await getStripeSecrets();
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!tenant) {
+    throw new HttpError(404, 'Tenant not found.');
+  }
+
+  if (!tenant.stripeCustomerId) {
+    return [];
+  }
+
+  const since = Math.floor(subMonths(new Date(), 12).getTime() / 1000);
+  const invoices = await stripe.invoices.list({
+    customer: tenant.stripeCustomerId,
+    created: { gte: since },
+    limit: 100,
+  });
+
+  return invoices.data
+    .map((invoice) => ({
+      id: invoice.id,
+      number: invoice.number ?? null,
+      status: invoice.status ?? null,
+      amountDue: invoice.amount_due ?? 0,
+      amountPaid: invoice.amount_paid ?? 0,
+      currency: invoice.currency ?? 'usd',
+      hostedInvoiceUrl: invoice.hosted_invoice_url ?? null,
+      invoicePdf: invoice.invoice_pdf ?? null,
+      periodStart: invoice.period_start ?? null,
+      periodEnd: invoice.period_end ?? null,
+      created: invoice.created ?? 0,
+    }))
+    .sort((a, b) => b.created - a.created);
 };
 
 export const scheduleStripeCancellationForTenant = async (tenantId: string) => {

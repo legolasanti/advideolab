@@ -6,7 +6,7 @@ import { renderToString } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LandingPage from '../src/pages/marketing/LandingPage';
-import ProductPage from '../src/pages/marketing/ProductPage';
+import LanguagesPage from '../src/pages/marketing/LanguagesPage';
 import PricingPage from '../src/pages/marketing/PricingPage';
 import AboutPage from '../src/pages/marketing/AboutPage';
 import ContactPage from '../src/pages/marketing/ContactPage';
@@ -33,7 +33,7 @@ type RouteEntry = {
 
 const routes: RouteEntry[] = [
   { path: '/', component: LandingPage },
-  { path: '/product', component: ProductPage },
+  { path: '/languages', component: LanguagesPage },
   { path: '/pricing', component: PricingPage },
   { path: '/about', component: AboutPage },
   { path: '/contact', component: ContactPage },

@@ -10,6 +10,41 @@ import Button from '../components/ui/Button';
 import FormField from '../components/ui/FormField';
 import { getMarketingContext } from '../lib/marketing';
 
+type InvoiceSummary = {
+  id: string;
+  number: string | null;
+  status: string | null;
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  hostedInvoiceUrl: string | null;
+  invoicePdf: string | null;
+  periodStart: number | null;
+  periodEnd: number | null;
+  created: number;
+};
+
+const formatInvoiceAmount = (amount: number, currency: string) => {
+  const normalized = (currency || 'usd').toUpperCase();
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: normalized,
+    maximumFractionDigits: 2,
+  }).format(amount / 100);
+};
+
+const formatInvoiceDate = (timestamp: number | null) => {
+  if (!timestamp) return null;
+  return new Date(timestamp * 1000).toLocaleDateString();
+};
+
+const formatInvoiceStatus = (status?: string | null) => {
+  if (!status) return 'unknown';
+  return status
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
 const SettingsPage = () => {
   const queryClient = useQueryClient();
   const { tenant, token, refreshProfile } = useAuth();
@@ -26,6 +61,9 @@ const SettingsPage = () => {
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelSuccess, setCancelSuccess] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [invoices, setInvoices] = useState<InvoiceSummary[]>([]);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
   const planLimit = usage?.plan?.monthly_limit ?? null;
   const isUnlimited = Boolean(usage?.plan?.code) && planLimit === null;
   const needsPayment = tenant?.status === 'pending' || tenant?.paymentStatus === 'payment_pending';
@@ -67,6 +105,31 @@ const SettingsPage = () => {
     next.delete('billing');
     setSearchParams(next, { replace: true });
   }, [queryClient, refreshProfile, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    setInvoiceLoading(true);
+    setInvoiceError(null);
+    api
+      .get('/tenant/billing/invoices')
+      .then(({ data }) => {
+        if (cancelled) return;
+        setInvoices(Array.isArray(data?.invoices) ? data.invoices : []);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        const serverError = err?.response?.data?.error;
+        setInvoiceError(typeof serverError === 'string' ? serverError : 'Unable to load invoices.');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setInvoiceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, tenant?.stripeCustomerId]);
 
   const openStripe = async (planCode?: PlanCode, interval?: 'monthly' | 'annual') => {
     setMessage(null);
@@ -211,6 +274,74 @@ const SettingsPage = () => {
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-white/5 p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Billing history</h2>
+          <p className="text-sm text-slate-400">Download invoices and receipts from the last 12 months.</p>
+        </div>
+
+        {invoiceLoading && <p className="text-sm text-slate-400">Loading invoices…</p>}
+        {invoiceError && <p className="text-sm text-rose-300">{invoiceError}</p>}
+
+        {!invoiceLoading && !invoiceError && invoices.length === 0 && (
+          <p className="text-sm text-slate-400">No invoices yet. Your Stripe history will appear here after billing.</p>
+        )}
+
+        <div className="space-y-3">
+          {invoices.map((invoice) => {
+            const periodStart = formatInvoiceDate(invoice.periodStart ?? invoice.created);
+            const periodEnd = formatInvoiceDate(invoice.periodEnd);
+            const periodLabel = periodEnd ? `${periodStart} → ${periodEnd}` : periodStart ?? '—';
+            const amount = invoice.amountPaid > 0 ? invoice.amountPaid : invoice.amountDue;
+            const statusLabel = formatInvoiceStatus(invoice.status);
+            const invoiceLabel = invoice.number ? `Invoice ${invoice.number}` : `Invoice ${invoice.id.slice(-8)}`;
+
+            return (
+              <div
+                key={invoice.id}
+                className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-white">{invoiceLabel}</p>
+                  <p className="text-xs text-slate-400">Period {periodLabel}</p>
+                </div>
+                <div className="flex flex-col items-start gap-1 sm:items-end">
+                  <p className="text-sm font-semibold text-white">{formatInvoiceAmount(amount, invoice.currency)}</p>
+                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-200">
+                    {statusLabel}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {invoice.hostedInvoiceUrl && (
+                    <a
+                      href={invoice.hostedInvoiceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-xs text-white transition hover:border-white/30 hover:bg-white/10"
+                    >
+                      View invoice
+                    </a>
+                  )}
+                  {invoice.invoicePdf && (
+                    <a
+                      href={invoice.invoicePdf}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white transition hover:border-white/30 hover:bg-white/20"
+                    >
+                      Download PDF
+                    </a>
+                  )}
+                  {!invoice.hostedInvoiceUrl && !invoice.invoicePdf && (
+                    <span className="text-xs text-slate-500">Links unavailable</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-6 space-y-4">
         <h2 className="text-lg font-semibold text-white">Cancel subscription</h2>
         <p className="text-sm text-slate-400">
           We hate to see you go. Share a quick exit survey so we can improve.
@@ -311,11 +442,10 @@ const SettingsPage = () => {
                   wouldReturn: cancelWouldReturn,
                 });
                 const effective = data?.effectiveAt ? new Date(data.effectiveAt).toLocaleDateString() : null;
-                setCancelSuccess(
-                  effective
-                    ? `Cancellation scheduled for ${effective}.`
-                    : 'Cancellation scheduled. You will receive a confirmation email shortly.',
-                );
+                const scheduledCopy = effective
+                  ? `Cancellation scheduled for ${effective}.`
+                  : 'Cancellation scheduled. You will receive a confirmation email shortly.';
+                setCancelSuccess(data?.alreadyScheduled ? 'Cancellation is already scheduled for this billing period.' : scheduledCopy);
                 if (data?.emailSent === false) {
                   setCancelError('Cancellation was scheduled, but we could not send the confirmation email. Please contact support.');
                 }

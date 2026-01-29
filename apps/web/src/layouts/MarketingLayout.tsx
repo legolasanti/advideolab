@@ -6,7 +6,7 @@ import { useCmsSection } from '../hooks/useCmsSection';
 import { legalDefaults } from '../content/marketing';
 
 export const marketingNavLinks = [
-  { label: 'Platform', to: '/product' },
+  { label: 'Languages', to: '/languages' },
   { label: 'Examples', to: '/examples' },
   { label: 'Pricing', to: '/pricing' },
   { label: 'Contact', to: '/contact' },
@@ -26,7 +26,7 @@ const MarketingChrome = ({ children }: { children?: ReactNode }) => {
 
   const { data: legalCms } = useCmsSection('legal', { content: legalDefaults });
   const legal = (legalCms.content as typeof legalDefaults | undefined) ?? legalDefaults;
-  const companyName = legal.company.name?.trim() || 'Reklamedia Ceviz';
+  const companyName = legal.company.name?.trim() || 'Reklamedia';
   const companyCountry = legal.company.country?.trim() || 'Norway';
 
   return (
@@ -164,7 +164,7 @@ const MarketingChrome = ({ children }: { children?: ReactNode }) => {
             <div>
               <h4 className="font-bold text-white mb-6">Product</h4>
               <ul className="space-y-3 text-sm text-slate-400">
-                <li><NavLink to="/product" className="hover:text-emerald-300 transition">Platform</NavLink></li>
+                <li><NavLink to="/languages" className="hover:text-emerald-300 transition">Languages</NavLink></li>
                 <li><NavLink to="/examples" className="hover:text-emerald-300 transition">Examples</NavLink></li>
                 <li><NavLink to="/pricing" className="hover:text-emerald-300 transition">Pricing</NavLink></li>
                 <li><NavLink to="/new-video" className="hover:text-emerald-300 transition">Get started</NavLink></li>

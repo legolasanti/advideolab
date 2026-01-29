@@ -34,9 +34,10 @@ const OwnerBlogPage = lazy(() => import('./pages/OwnerBlogPage'));
 const OwnerSettingsPage = lazy(() => import('./pages/OwnerSettingsPage'));
 const OwnerCancellationsPage = lazy(() => import('./pages/OwnerCancellationsPage'));
 const OwnerShowcaseVideosPage = lazy(() => import('./pages/OwnerShowcaseVideosPage'));
+const OwnerMediaLibraryPage = lazy(() => import('./pages/OwnerMediaLibraryPage'));
 const OwnerAnalyticsPage = lazy(() => import('./pages/OwnerAnalyticsPage'));
 const LandingPage = lazy(() => import('./pages/marketing/LandingPage'));
-const ProductPage = lazy(() => import('./pages/marketing/ProductPage'));
+const LanguagesPage = lazy(() => import('./pages/marketing/LanguagesPage'));
 const PricingPage = lazy(() => import('./pages/marketing/PricingPage'));
 const AboutPage = lazy(() => import('./pages/marketing/AboutPage'));
 const ContactPage = lazy(() => import('./pages/marketing/ContactPage'));
@@ -84,7 +85,8 @@ const App = () => {
           <Route element={<LightMarketingLayout />}>
             <Route index element={<LandingPage />} />
             <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/product" element={<ProductPage />} />
+            <Route path="/product" element={<Navigate to="/languages" replace />} />
+            <Route path="/languages" element={<LanguagesPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/contact" element={<ContactPage />} />
             <Route path="/examples" element={<ExamplesPage />} />
@@ -128,6 +130,7 @@ const App = () => {
           <Route path="/owner/analytics" element={<OwnerAnalyticsPage />} />
           <Route path="/owner/users" element={<OwnerUsersPage />} />
           <Route path="/owner/cms" element={<OwnerCmsPage />} />
+          <Route path="/owner/media-library" element={<OwnerMediaLibraryPage />} />
           <Route path="/owner/coupons" element={<OwnerCouponsPage />} />
           <Route path="/owner/cancellations" element={<OwnerCancellationsPage />} />
           <Route path="/owner/showcase-videos" element={<OwnerShowcaseVideosPage />} />

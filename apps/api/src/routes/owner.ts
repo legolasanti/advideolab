@@ -320,17 +320,6 @@ router.delete('/tenants/:tenantId', async (req, res) => {
     await tx.tenant.delete({ where: { id: tenantId } });
   });
 
-  await prisma.audit.create({
-    data: {
-      action: 'owner_tenant_deleted',
-      details: {
-        tenantId,
-        tenantName: tenant.name,
-        deletedBy: req.auth?.ownerId ?? null,
-      },
-    },
-  });
-
   res.json({ ok: true, deleted: tenant.name });
 });
 

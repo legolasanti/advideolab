@@ -7,7 +7,7 @@ import { legalDefaults } from '../content/marketing';
 import { useMarketingTracker } from '../hooks/useMarketingTracker';
 
 export const lightMarketingNavLinks = [
-  { label: 'Platform', to: '/product' },
+  { label: 'Languages', to: '/languages' },
   { label: 'Examples', to: '/examples' },
   { label: 'Pricing', to: '/pricing' },
   { label: 'Contact', to: '/contact' },
@@ -28,7 +28,7 @@ const LightMarketingChrome = ({ children }: { children?: ReactNode }) => {
 
   const { data: legalCms } = useCmsSection('legal', { content: legalDefaults });
   const legal = (legalCms.content as typeof legalDefaults | undefined) ?? legalDefaults;
-  const companyName = legal.company.name?.trim() || 'Reklamedia Ceviz';
+  const companyName = legal.company.name?.trim() || 'Reklamedia';
   const companyCountry = legal.company.country?.trim() || 'Norway';
 
   return (
@@ -163,7 +163,7 @@ const LightMarketingChrome = ({ children }: { children?: ReactNode }) => {
             <div>
               <h4 className="font-bold text-slate-900 mb-6">Product</h4>
               <ul className="space-y-3 text-sm text-slate-600">
-                <li><NavLink to="/product" className="hover:text-[#2e90fa] transition">Platform</NavLink></li>
+                <li><NavLink to="/languages" className="hover:text-[#2e90fa] transition">Languages</NavLink></li>
                 <li><NavLink to="/examples" className="hover:text-[#2e90fa] transition">Examples</NavLink></li>
                 <li><NavLink to="/pricing" className="hover:text-[#2e90fa] transition">Pricing</NavLink></li>
                 <li><NavLink to="/new-video" className="hover:text-[#2e90fa] transition">Get started</NavLink></li>

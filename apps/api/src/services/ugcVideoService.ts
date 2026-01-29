@@ -16,7 +16,7 @@ import {
   releaseReservedTenantQuota,
 } from './quota';
 import type { QuotaReservation } from './quota';
-import { sendJobCompletedEmail } from './email';
+import { sendJobCompletedEmail, sendJobFailedNotification } from './email';
 
 export type UgcJobPayload = {
   imageUrl: string;
@@ -335,11 +335,24 @@ export const completeUgcJobFromUpload = async (params: {
   };
 };
 
-export const markUgcJobFailed = async (params: { jobId: string; errorMessage?: string | null }) => {
-  const { jobId, errorMessage } = params;
+export const markUgcJobFailed = async (params: {
+  jobId: string;
+  errorMessage?: string | null;
+  failureReason?: 'timeout' | 'error' | 'cancelled';
+  notifyAdmin?: boolean;
+}) => {
+  const { jobId, errorMessage, failureReason = 'error', notifyAdmin = true } = params;
   const job = await prisma.job.findUnique({
     where: { id: jobId },
-    select: { id: true, tenantId: true, status: true, finishedAt: true, options: true },
+    select: {
+      id: true,
+      tenantId: true,
+      status: true,
+      finishedAt: true,
+      options: true,
+      productName: true,
+      createdAt: true,
+    },
   });
   if (!job) {
     throw new Error('job_not_found');
@@ -377,5 +390,77 @@ export const markUgcJobFailed = async (params: { jobId: string; errorMessage?: s
     await releaseReservedTenantQuota(job.tenantId, reservation);
   }
 
+  // Notify admin about the failure
+  if (notifyAdmin) {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: job.tenantId },
+      select: { name: true },
+    });
+    const runningMinutes = job.createdAt
+      ? Math.floor((Date.now() - new Date(job.createdAt).getTime()) / 60000)
+      : undefined;
+
+    sendJobFailedNotification({
+      jobId: job.id,
+      tenantName: tenant?.name ?? 'Unknown Tenant',
+      productName: job.productName,
+      errorMessage: errorMessage ?? 'workflow_failed',
+      runningMinutes,
+      failureReason,
+    }).catch((err) => {
+      console.error('[ugc] Failed to send job failure notification:', err);
+    });
+  }
+
   return { updated: true };
+};
+
+// Timeout threshold in minutes (jobs running longer than this will be marked as failed)
+const JOB_TIMEOUT_MINUTES = 15;
+
+export const cleanupStaleJobs = async (): Promise<{ cleaned: number }> => {
+  const timeoutThreshold = new Date(Date.now() - JOB_TIMEOUT_MINUTES * 60 * 1000);
+
+  // Find all jobs that are still running but have been running for too long
+  const staleJobs = await prisma.job.findMany({
+    where: {
+      status: { in: [JobStatus.pending, JobStatus.processing, JobStatus.running] },
+      finishedAt: null,
+      createdAt: { lt: timeoutThreshold },
+    },
+    select: {
+      id: true,
+      tenantId: true,
+      productName: true,
+      createdAt: true,
+      options: true,
+    },
+  });
+
+  if (staleJobs.length === 0) {
+    return { cleaned: 0 };
+  }
+
+  console.info(`[ugc] Found ${staleJobs.length} stale jobs to clean up`);
+
+  let cleaned = 0;
+  for (const job of staleJobs) {
+    try {
+      const runningMinutes = Math.floor((Date.now() - new Date(job.createdAt).getTime()) / 60000);
+      const result = await markUgcJobFailed({
+        jobId: job.id,
+        errorMessage: `Job timed out after ${runningMinutes} minutes`,
+        failureReason: 'timeout',
+        notifyAdmin: true,
+      });
+      if (result.updated) {
+        cleaned += 1;
+        console.info(`[ugc] Cleaned up stale job ${job.id} (running for ${runningMinutes} minutes)`);
+      }
+    } catch (err) {
+      console.error(`[ugc] Failed to clean up stale job ${job.id}:`, err);
+    }
+  }
+
+  return { cleaned };
 };

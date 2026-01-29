@@ -10,8 +10,8 @@ const AboutPage = () => {
   return (
     <div className="space-y-16 px-4 py-16 bg-white min-h-screen">
       <Seo
-        title="About – UGC Studio"
-        description="Why we built UGC Studio and the story behind the product."
+        title="About – AdvideoLab"
+        description="Why we built AdvideoLab and the story behind the product."
         url={getSiteUrl('/about')}
       />
 
@@ -20,7 +20,7 @@ const AboutPage = () => {
         <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
           About Us
         </span>
-        <h1 className="mt-6 text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">Why we built UGC Studio</h1>
+        <h1 className="mt-6 text-4xl font-bold tracking-tight text-slate-900 md:text-5xl">Why we built AdvideoLab</h1>
         <p className="mt-6 text-lg text-slate-600">{about.mission}</p>
       </section>
 
@@ -67,7 +67,7 @@ const AboutPage = () => {
       <section className="mx-auto max-w-4xl">
         <div className="rounded-3xl bg-gradient-to-r from-[#2e90fa] to-blue-600 px-8 py-12 text-center">
           <h2 className="text-2xl font-bold text-white">Want to learn more?</h2>
-          <p className="mt-2 text-blue-100">Get in touch with our team or explore our platform.</p>
+          <p className="mt-2 text-blue-100">Get in touch with our team or explore supported languages.</p>
           <div className="mt-6 flex flex-wrap justify-center gap-4">
             <a
               href="/contact"
@@ -76,10 +76,10 @@ const AboutPage = () => {
               Contact Us
             </a>
             <a
-              href="/product"
+              href="/languages"
               className="inline-flex items-center justify-center rounded-full border-2 border-white/30 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
             >
-              Explore Platform
+              Explore Languages
             </a>
           </div>
         </div>

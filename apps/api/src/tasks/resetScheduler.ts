@@ -1,8 +1,10 @@
 import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
 import { resetUsageForTenant, resolveUsageCycle, computeNextBillingDate } from '../services/quota';
+import { cleanupStaleJobs } from '../services/ugcVideoService';
 
 export const scheduleMonthlyResets = () => {
+  // Reset tenant quotas every 15 minutes
   cron.schedule('*/15 * * * *', async () => {
     const now = new Date();
     const tenants = await prisma.tenant.findMany({
@@ -34,5 +36,19 @@ export const scheduleMonthlyResets = () => {
       resetCount += 1;
     }
     console.log(`Reset quotas for ${resetCount} tenants`);
+  });
+
+  // Cleanup stale jobs every 5 minutes
+  // This catches jobs that have been running for too long (15+ minutes)
+  // and marks them as failed with credit refund and admin notification
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const result = await cleanupStaleJobs();
+      if (result.cleaned > 0) {
+        console.log(`[job-cleanup] Cleaned up ${result.cleaned} stale jobs`);
+      }
+    } catch (err) {
+      console.error('[job-cleanup] Failed to cleanup stale jobs:', err);
+    }
   });
 };

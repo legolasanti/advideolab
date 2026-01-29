@@ -33,6 +33,11 @@ enum AssetType {
   output
 }
 
+enum MediaAssetType {
+  image
+  video
+}
+
 enum JobKind {
   video
   image
@@ -459,4 +464,19 @@ model ShowcaseVideo {
   updatedAt   DateTime @updatedAt
 
   @@index([isActive, sortOrder])
+}
+
+model MediaAsset {
+  id        String          @id @default(cuid())
+  type      MediaAssetType
+  name      String
+  altText   String?
+  url       String
+  mimeType  String
+  sizeBytes Int?
+  meta      Json?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([type, createdAt])
 }

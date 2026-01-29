@@ -840,3 +840,102 @@ export const sendEmailTest = async () => {
   }
   return ok;
 };
+
+const buildJobFailedEmail = ({
+  jobId,
+  tenantName,
+  productName,
+  errorMessage,
+  runningMinutes,
+  failureReason,
+  tenantsUrl,
+}: {
+  jobId: string;
+  tenantName: string;
+  productName?: string | null;
+  errorMessage?: string | null;
+  runningMinutes?: number;
+  failureReason: 'timeout' | 'error' | 'cancelled';
+  tenantsUrl: string;
+}): EmailTemplate => {
+  const subject = `[Advideolab] Job Failed: ${tenantName}`;
+  const safeJobId = escapeHtml(jobId);
+  const safeTenant = escapeHtml(tenantName);
+  const safeProduct = escapeHtml(productName ?? 'Unknown');
+  const safeError = escapeHtml(errorMessage ?? 'No error message');
+  const safeTenantsHref = escapeAttr(sanitizeUrl(tenantsUrl) ?? '#');
+  const reasonLabel =
+    failureReason === 'timeout'
+      ? `Timed out after ${runningMinutes ?? 15} minutes`
+      : failureReason === 'cancelled'
+      ? 'Manually cancelled'
+      : 'Workflow error';
+
+  const text = [
+    `A video generation job has failed.`,
+    '',
+    `Tenant: ${tenantName}`,
+    `Product: ${productName ?? 'Unknown'}`,
+    `Job ID: ${jobId}`,
+    `Reason: ${reasonLabel}`,
+    `Error: ${errorMessage ?? 'No error message'}`,
+    '',
+    `The customer's credit has been automatically refunded.`,
+    `Review in the admin console: ${tenantsUrl}`,
+  ].join('\n');
+
+  const html = wrapEmailHtml(`
+    <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600; color: #1e293b;">Job Failed</h2>
+    <p>A video generation job has failed and requires your attention.</p>
+    <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 12px 0;"><strong>Tenant:</strong> ${safeTenant}</p>
+      <p style="margin: 0 0 12px 0;"><strong>Product:</strong> ${safeProduct}</p>
+      <p style="margin: 0 0 12px 0;"><strong>Job ID:</strong> <code style="background: #fee2e2; padding: 2px 6px; border-radius: 4px;">${safeJobId}</code></p>
+      <p style="margin: 0 0 12px 0;"><strong>Reason:</strong> ${escapeHtml(reasonLabel)}</p>
+      <p style="margin: 0;"><strong>Error:</strong> ${safeError}</p>
+    </div>
+    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px; margin: 20px 0;">
+      <p style="margin: 0; color: #166534; font-size: 14px;">The customer's credit has been automatically refunded.</p>
+    </div>
+    <p style="margin: 24px 0;"><a href="${safeTenantsHref}" style="${buttonStyle}">Open Admin Console</a></p>
+  `);
+
+  return { subject, text, html };
+};
+
+export const sendJobFailedNotification = async ({
+  jobId,
+  tenantName,
+  productName,
+  errorMessage,
+  runningMinutes,
+  failureReason,
+}: {
+  jobId: string;
+  tenantName: string;
+  productName?: string | null;
+  errorMessage?: string | null;
+  runningMinutes?: number;
+  failureReason: 'timeout' | 'error' | 'cancelled';
+}): Promise<boolean> => {
+  const { notificationEmail: target } = await resolveEmailConfig();
+  if (!target) {
+    console.warn('[email] job failed notification skipped; notificationEmail missing');
+    return false;
+  }
+  const template = buildJobFailedEmail({
+    jobId,
+    tenantName,
+    productName,
+    errorMessage,
+    runningMinutes,
+    failureReason,
+    tenantsUrl: `${env.WEB_BASE_URL}/owner/tenants`,
+  });
+  return sendMail({
+    to: target,
+    subject: template.subject,
+    text: template.text,
+    html: template.html,
+  }, 'job_failed');
+};

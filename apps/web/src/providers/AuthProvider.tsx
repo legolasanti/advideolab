@@ -21,6 +21,7 @@ type TenantInfo = {
   subscriptionCanceledAt?: string | null;
   defaultLogoPos?: string;
   defaultLogoScale?: number;
+  stripeCustomerId?: string | null;
 };
 
 type AuthContextValue = {

@@ -9,6 +9,7 @@ import {
   activateTenantFromCheckoutSessionId,
   createStripeBillingPortalSessionForTenant,
   createStripeCheckoutSessionForTenant,
+  listStripeInvoicesForTenant,
   scheduleStripeCancellationForTenant,
 } from '../services/stripe';
 import { sendSubscriptionCancelledEmail } from '../services/email';
@@ -154,6 +155,20 @@ router.post(
     });
 
     res.json({ url: portal.url });
+  },
+);
+
+router.get(
+  '/billing/invoices',
+  requireAuth,
+  requireTenantRole(['tenant_admin']),
+  async (req, res) => {
+    if (!req.tenant) {
+      return res.status(400).json({ error: 'tenant_missing' });
+    }
+
+    const invoices = await listStripeInvoicesForTenant(req.tenant.id);
+    res.json({ invoices });
   },
 );
 

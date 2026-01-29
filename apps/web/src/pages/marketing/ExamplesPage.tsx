@@ -12,6 +12,20 @@ type ShowcaseVideo = {
   videoUrl?: string;
 };
 
+const isDirectVideoUrl = (url: string) => /\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(url);
+
+const buildSafeEmbedUrl = (rawUrl: string) => {
+  try {
+    const url = new URL(rawUrl);
+    url.searchParams.set('autoplay', '0');
+    url.searchParams.set('muted', '1');
+    url.searchParams.set('playsinline', '1');
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+};
+
 const placeholderCards = [
   { title: 'Example 01 — TikTok — 0:18' },
   { title: 'Example 02 — Reels — 0:22' },
@@ -120,13 +134,24 @@ const ExamplesPage = () => {
                     </div>
                   ) : (
                     <div className="aspect-[9/16] w-full">
-                      <iframe
-                        src={realVideos[index]!.videoUrl}
-                        title={realVideos[index]!.title}
-                        className="h-full w-full"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
+                      {isDirectVideoUrl(realVideos[index]!.videoUrl!) ? (
+                        <video
+                          src={realVideos[index]!.videoUrl}
+                          className="h-full w-full object-cover"
+                          controls
+                          preload="metadata"
+                          playsInline
+                        />
+                      ) : (
+                        <iframe
+                          src={buildSafeEmbedUrl(realVideos[index]!.videoUrl!)}
+                          title={realVideos[index]!.title}
+                          className="h-full w-full"
+                          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                          loading="lazy"
+                        />
+                      )}
                     </div>
                   )}
                 </div>
