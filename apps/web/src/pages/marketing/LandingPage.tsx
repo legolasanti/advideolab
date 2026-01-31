@@ -247,6 +247,7 @@ const defaultFeatures: FeatureItem[] = [
 
 const faqs: FaqItem[] = [
   { question: 'What do I need to start?', answer: 'Just one product image. Upload a photo and our AI handles the rest—script writing, voice generation, and video creation.' },
+  { question: 'Can I upload a human photo instead of a product image?', answer: 'No. Human photos are not supported and will be rejected. Please upload a clean, product-only image with a clear background whenever possible.' },
   { question: 'How long does generation take?', answer: 'Most videos are ready in 2-5 minutes depending on length and current queue. Batch generations may take slightly longer.' },
   { question: 'Can I control the script and CTA?', answer: 'Yes. You can provide custom prompts, select from different tones and vibes, and specify your exact call-to-action.' },
   { question: 'Which platforms are supported?', answer: 'We optimize for TikTok, Instagram Reels, and YouTube Shorts with proper aspect ratios and durations for each.' },
