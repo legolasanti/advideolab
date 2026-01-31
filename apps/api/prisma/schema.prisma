@@ -1,0 +1,482 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  tenant_admin
+  user
+}
+
+enum TenantStatus {
+  pending
+  active
+  suspended
+}
+
+enum JobStatus {
+  pending
+  running
+  done
+  error
+  processing
+  completed
+  failed
+}
+
+enum AssetType {
+  input
+  output
+}
+
+enum MediaAssetType {
+  image
+  video
+}
+
+enum JobKind {
+  video
+  image
+  other
+}
+
+enum PaymentStatus {
+  payment_pending
+  active_paid
+  past_due
+}
+
+enum BillingEntityType {
+  individual
+  company
+}
+
+enum BillingInterval {
+  monthly
+  annual
+}
+
+enum WebhookEventStatus {
+  processing
+  processed
+  failed
+}
+
+enum MarketingEventType {
+  visit
+  signup_started
+  signup_completed
+  checkout_started
+  payment_completed
+}
+
+model Plan {
+  id                String   @id @default(cuid())
+  name              String
+  code              String   @unique
+  monthlyPriceUsd   Int
+  monthlyVideoLimit Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenants Tenant[]
+}
+
+model Tenant {
+  id                   String        @id @default(cuid())
+  name                 String
+  planId               String?
+  resetDay             Int           @default(1)
+  n8nBaseUrl           String? // @deprecated - now in SystemConfig (global)
+  n8nProcessPath       String? // @deprecated - now in SystemConfig (global)
+  logoUrl              String?
+  defaultWatermarkText String?
+  defaultLogoPos       String?       @db.VarChar(32)
+  defaultLogoScale     Int?          @default(100)
+  status               TenantStatus  @default(pending)
+  createdAt            DateTime      @default(now())
+  monthlyVideoLimit    Int           @default(0)
+  bonusCredits         Int           @default(0)
+  videosUsedThisCycle  Int           @default(0)
+  billingCycleStart    DateTime      @default(now())
+  billingNotes         String?       @db.Text
+  nextBillingDate      DateTime?
+  requestedPlanCode    String?
+  paymentStatus        PaymentStatus @default(payment_pending)
+  billingInterval      BillingInterval @default(monthly)
+  billingEntityType    BillingEntityType @default(company)
+  billingCompanyName   String?
+  billingCountry       String?       @db.VarChar(2)
+  billingVatNumber     String?       @db.VarChar(64)
+  appliedCouponCode    String?       @db.VarChar(64)
+  stripeCustomerId     String?       @unique @db.VarChar(64)
+  stripeSubscriptionId String?       @unique @db.VarChar(64)
+  stripeCheckoutSessionId String?    @unique @db.VarChar(128)
+  subscriptionPeriodStart DateTime?
+  subscriptionPeriodEnd   DateTime?
+  subscriptionCancelAt    DateTime?
+  subscriptionCanceledAt  DateTime?
+
+  planDetails   Plan?               @relation(fields: [planId], references: [id])
+  users         User[]
+  apiKeys       ApiKey[]
+  usages        Usage[]
+  assets        Asset[]
+  jobs          Job[]
+  audits        Audit[]
+  owner         Owner[]
+  notifications AdminNotification[]
+  subscriptionCancellations SubscriptionCancellation[]
+  marketingEvents MarketingEvent[]
+  refreshTokens RefreshToken[]
+
+  @@index([planId])
+}
+
+model Owner {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  tokenVersion Int      @default(0)
+  createdAt    DateTime @default(now())
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id])
+  refreshTokens RefreshToken[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  email        String   @unique
+  passwordHash String
+  googleId     String?  @unique
+  emailVerifiedAt DateTime?
+  tokenVersion Int      @default(0)
+  role         UserRole @default(user)
+  createdAt    DateTime @default(now())
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  audits Audit[]
+  jobs   Job[]
+  subscriptionCancellations SubscriptionCancellation[]
+  marketingEvents MarketingEvent[]
+  emailVerificationTokens EmailVerificationToken[]
+  refreshTokens RefreshToken[]
+}
+
+// @deprecated - This table is now legacy. New installations use SystemConfig.apiKeysEncrypted (global)
+model ApiKey {
+  id           String   @id @default(cuid())
+  tenantId     String
+  provider     String
+  keyEncrypted String
+  createdAt    DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, provider])
+}
+
+model Usage {
+  id        String   @id @default(cuid())
+  tenantId  String
+  monthKey  String   @db.VarChar(6)
+  used      Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, monthKey])
+}
+
+model Asset {
+  id        String    @id @default(cuid())
+  tenantId  String
+  jobId     String?
+  type      AssetType
+  url       String
+  meta      Json?
+  createdAt DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  job    Job?   @relation(fields: [jobId], references: [id])
+}
+
+model Job {
+  id              String    @id @default(cuid())
+  tenantId        String
+  userId          String?
+  status          JobStatus @default(pending)
+  kind            JobKind   @default(video)
+  options         Json
+  inputAssetId    String?
+  outputs         Json?
+  error           String?
+  cost            Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  finishedAt      DateTime?
+  productName     String?
+  prompt          String?
+  language        String?
+  gender          String?
+  ageRange        String?
+  platform        String?
+  voiceProfile    String?
+  vibe            String?
+  videoCount      Int?
+  cta             String?
+  imageUrl        String?
+  videoUrl        String?
+  provider        String?
+  providerJobId   String?
+  durationSeconds Int?
+  errorMessage    String?
+  completedAt     DateTime?
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  assets Asset[]
+  user   User?   @relation(fields: [userId], references: [id])
+}
+
+model Audit {
+  id          String   @id @default(cuid())
+  tenantId    String
+  actorUserId String?
+  action      String
+  details     Json?
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  actor  User?  @relation(fields: [actorUserId], references: [id])
+}
+
+model AdminNotification {
+  id        String    @id @default(cuid())
+  tenantId  String
+  type      String
+  message   String
+  details   Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+}
+
+model CmsContent {
+  id        String   @id @default(cuid())
+  section   String
+  key       String
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([section, key])
+}
+
+model Coupon {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  type      String   // 'percent' | 'fixed'
+  value     Int      // Amount in cents or percentage (e.g. 20 for 20%)
+  expiresAt DateTime?
+  isActive  Boolean  @default(true)
+  maxUses   Int?
+  createdAt DateTime @default(now())
+  usedCount Int      @default(0)
+  stripeCouponId String? @unique
+}
+
+model SubscriptionCancellation {
+  id                String         @id @default(cuid())
+  tenantId          String
+  userId            String?
+  planCode          String?
+  billingInterval   BillingInterval @default(monthly)
+  reason            String
+  details           Json?
+  monthsActive      Int?
+  requestedAt       DateTime       @default(now())
+  effectiveAt       DateTime?
+  canceledAt        DateTime?
+  stripeSubscriptionId String?     @db.VarChar(64)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([requestedAt])
+}
+
+model BlogPost {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  content   String   @db.Text
+  excerpt   String?  @db.Text
+  image     String?
+  category  String?  // 'blog', 'news', 'update', etc.
+  author    String?
+  published Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  meta      Json?    // For SEO tags
+}
+
+model SystemConfig {
+  id String @id @default("singleton")
+
+  smtpHost          String?
+  smtpPort          Int?
+  smtpUser          String?
+  smtpPassEncrypted String?
+  emailFrom         String?
+  notificationEmail String?
+
+  stripePublishableKey        String?
+  stripeSecretKeyEncrypted    String?
+  stripeWebhookSecretEncrypted String?
+  stripePriceIdStarter        String?
+  stripePriceIdGrowth         String?
+  stripePriceIdScale          String?
+  stripePriceIdStarterAnnual  String?
+  stripePriceIdGrowthAnnual   String?
+  stripePriceIdScaleAnnual    String?
+
+  sandboxTenantId String?
+
+  // Global n8n Configuration (replaces per-tenant config)
+  n8nBaseUrl       String?
+  n8nProcessPath   String?
+  n8nInternalToken String? // encrypted
+
+  // Global API Keys (encrypted JSON object: { openai: "...", elevenlabs: "..." })
+  apiKeysEncrypted String? @db.Text
+
+  customHeadCode  String? @db.Text
+  customBodyStart String? @db.Text
+  customBodyEnd   String? @db.Text
+
+  googleOAuthClientId String?
+  googleOAuthClientSecretEncrypted String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([token])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([email])
+  @@index([userId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String?
+  ownerId   String?
+  tenantId  String?
+  tokenVersion Int   @default(0)
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  user   User?   @relation(fields: [userId], references: [id])
+  owner  Owner?  @relation(fields: [ownerId], references: [id])
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([userId])
+  @@index([ownerId])
+  @@index([tenantId])
+}
+
+model MarketingEvent {
+  id          String             @id @default(cuid())
+  eventType   MarketingEventType
+  sessionId   String             @db.VarChar(128)
+  tenantId    String?
+  userId      String?
+  utmSource   String?            @db.VarChar(128)
+  utmMedium   String?            @db.VarChar(128)
+  utmCampaign String?            @db.VarChar(128)
+  referrer    String?            @db.Text
+  landingPage String?            @db.Text
+  createdAt   DateTime           @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([eventType, createdAt])
+  @@index([sessionId])
+  @@index([tenantId])
+}
+
+model StripeWebhookEvent {
+  id          String             @id @default(cuid())
+  eventId     String             @unique @db.VarChar(255)
+  type        String             @db.VarChar(255)
+  status      WebhookEventStatus @default(processing)
+  attempts    Int                @default(1)
+  lastError   String?            @db.Text
+  processedAt DateTime?
+  createdAt   DateTime           @default(now())
+
+  @@index([status])
+}
+
+model ShowcaseVideo {
+  id          String   @id @default(cuid())
+  title       String?
+  videoUrl    String
+  thumbnailUrl String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model MediaAsset {
+  id        String          @id @default(cuid())
+  type      MediaAssetType
+  name      String
+  altText   String?
+  url       String
+  mimeType  String
+  sizeBytes Int?
+  meta      Json?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([type, createdAt])
+}

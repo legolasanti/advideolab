@@ -1,0 +1,55 @@
+# UGC Video SaaS - Caddy Reverse Proxy Configuration
+#
+# Environment variables used:
+#   N8N_ALLOWED_IPS - Comma-separated list of allowed IPs/CIDRs for n8n UI access
+#                     Example: "1.2.3.4,10.0.0.0/8,192.168.1.0/24"
+#                     Leave empty to allow all (not recommended for production)
+#
+
+# Ana domain (marketing/landing pages)
+advideolab.com {
+	reverse_proxy web:4173
+}
+
+# App subdomain (dashboard/authenticated area)
+app.advideolab.com {
+	reverse_proxy web:4173
+}
+
+api.advideolab.com {
+	reverse_proxy api:4000
+}
+
+n8n.advideolab.com {
+	# N8N UI IP Restriction
+	# Webhook paths (/webhook/*) remain accessible from anywhere for callbacks
+	# All other paths are restricted to allowed IPs only
+
+	# Allow webhook endpoints from anywhere (required for n8n workflow callbacks)
+	@webhooks {
+		path /webhook/*
+		path /webhook-test/*
+	}
+	handle @webhooks {
+		reverse_proxy n8n:5678
+	}
+
+	# Restrict all other n8n paths to allowed IPs
+	# If N8N_ALLOWED_IPS is set, only those IPs can access the UI
+	# If N8N_ALLOWED_IPS is empty/unset, this block is skipped (allow all - dev mode)
+	@blocked_ip {
+		not remote_ip {$N8N_ALLOWED_IPS:private_ranges}
+	}
+	handle @blocked_ip {
+		respond "Access denied" 403
+	}
+
+	# Default: proxy to n8n (reached only if IP is allowed)
+	handle {
+		reverse_proxy n8n:5678
+	}
+}
+
+files.advideolab.com {
+	reverse_proxy minio:9000
+}

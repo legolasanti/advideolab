@@ -1,0 +1,17 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+process.env.NODE_ENV = 'test';
+process.env.PORT = '4000';
+process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/db';
+process.env.JWT_SECRET = 'super-secret-jwt-key-that-is-long';
+process.env.S3_ENDPOINT = 'http://localhost:9000';
+process.env.S3_BUCKET = 'test';
+process.env.S3_ACCESS_KEY = 'access';
+process.env.S3_SECRET_KEY = 'secret';
+process.env.PUBLIC_CDN_BASE = 'https://cdn.example.com';
+process.env.API_PUBLIC_URL = 'https://api.example.com';
+process.env.USE_CLOUDINARY = 'false';
+process.env.N8N_SYNC = 'false';
+process.env.ENCRYPTION_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
+process.env.RATE_LIMIT_WINDOW_MS = '60000';
+process.env.RATE_LIMIT_MAX = '100';
