@@ -839,7 +839,7 @@ const LandingPage = () => {
   return (
     <div>
       <Seo
-        title="Advideo lab - Create UGC AI Videos for TikTok, Reels & Shorts"
+        title="Advideolab - Create UGC AI Videos for TikTok, Reels & Shorts"
         description="Create high-converting UGC videos from a single image. Upload one photo, choose language & platform, and generate TikTok, Reels & Shorts-ready videos in minutes."
         url={getSiteUrl('/')}
       />
@@ -861,10 +861,10 @@ const LandingPage = () => {
                 {shouldRotateHeadline && headlineParts ? (
                   <>
                     {headlineParts[0]}
-                    <span className="relative inline-flex items-center bg-gradient-to-r from-[#6366f1] via-[#8b5cf6] to-[#a855f7] bg-clip-text text-transparent">
-                      {animatedPlatform}
+                    <span className="relative inline-block min-w-[16ch] align-baseline whitespace-nowrap bg-gradient-to-r from-[#6366f1] via-[#8b5cf6] to-[#a855f7] bg-clip-text text-transparent">
+                      <span className="inline-block align-baseline">{animatedPlatform}</span>
                       <span
-                        className="ml-1 inline-block h-[1em] w-[2px] animate-pulse bg-gradient-to-b from-[#6366f1] to-[#a855f7] align-middle"
+                        className="ml-1 inline-block h-[1em] w-[2px] animate-pulse bg-gradient-to-b from-[#6366f1] to-[#a855f7] align-baseline"
                         aria-hidden="true"
                       />
                     </span>
@@ -994,7 +994,7 @@ const LandingPage = () => {
 
         {/* Video Showcase Carousel */}
         <div className="mt-12">
-          <h2 className="text-center text-2xl font-bold text-slate-900 mb-4">
+          <h2 className="text-center text-3xl md:text-4xl font-semibold text-slate-600 mb-4">
             See what others are creating
           </h2>
           <VideoCarousel />
